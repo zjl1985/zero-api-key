@@ -37,8 +37,13 @@ impl LocalStore {
             .parent()
             .map(|p| p.to_path_buf())
             .context("无法定位配置目录")?;
+        let vault_file = if cfg!(debug_assertions) {
+            "vault-dev.enc"
+        } else {
+            "vault.enc"
+        };
         Ok(Self {
-            path: dir.join("vault.enc"),
+            path: dir.join(vault_file),
             key: master_key()?,
         })
     }

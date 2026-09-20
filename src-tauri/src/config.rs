@@ -47,7 +47,12 @@ impl Config {
 
     pub fn path() -> Result<PathBuf> {
         let home = dirs::home_dir().context("无法定位 home 目录")?;
-        Ok(home.join(".zero-api-key").join("config.toml"))
+        let name = if cfg!(debug_assertions) {
+            "config-dev.toml"
+        } else {
+            "config.toml"
+        };
+        Ok(home.join(".zero-api-key").join(name))
     }
 
     pub fn load() -> Result<Self> {

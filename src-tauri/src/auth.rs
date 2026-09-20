@@ -4,7 +4,10 @@ use keyring::Entry;
 use crate::api::Client;
 use crate::models::{CachedToken, LoginResponse};
 
+#[cfg(not(debug_assertions))]
 pub(crate) const KEYRING_SERVICE: &str = "zero-api-key";
+#[cfg(debug_assertions)]
+pub(crate) const KEYRING_SERVICE: &str = "zero-api-key-dev";
 const CLIENT_ID: &str = "client_id";
 const CLIENT_SECRET: &str = "client_secret";
 const ACCESS_TOKEN: &str = "access_token";

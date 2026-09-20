@@ -12,6 +12,10 @@ const LA_ERROR_BIOMETRY_NOT_ENROLLED: isize = -7;
 const LA_ERROR_BIOMETRY_LOCKOUT: isize = -8;
 
 pub fn authenticate(reason: &str) -> Result<()> {
+    if cfg!(debug_assertions) {
+        let _ = reason;
+        return Ok(());
+    }
     unsafe {
         let context = LAContext::new();
         context.setTouchIDAuthenticationAllowableReuseDuration(0.0);
@@ -83,7 +87,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "需要真机 Touch ID，手动运行：cargo test touch_id -- --ignored"]
+    #[ignore = "需要真机 Touch ID 且仅 release 构建会真正弹窗，手动运行：cargo test --release touch_id -- --ignored"]
     fn manual_authenticate() {
         authenticate("zero-api-key 测试").unwrap();
     }
