@@ -1,0 +1,9 @@
+# 数据目录 / 保险库（含密钥，绝不入库）
+/vault/
+*.vault
+
+# Rust
+/target
+
+# macOS
+.DS_Store
