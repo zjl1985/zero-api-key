@@ -3,22 +3,30 @@ mod auth;
 mod commands;
 mod config;
 mod importer;
+mod local_store;
 mod models;
+mod store;
 
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "zak", version, about = "个人密钥管理 CLI（Infisical Cloud 后端）")]
+#[command(name = "zak", version, about = "个人密钥管理 CLI（本地加密保险库 + Infisical Cloud 双后端）")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
+    /// 使用本地加密保险库后端
+    #[arg(long, global = true, conflicts_with = "cloud")]
+    local: bool,
+    /// 使用 Infisical Cloud 后端
+    #[arg(long, global = true)]
+    cloud: bool,
 }
 
 #[derive(Subcommand)]
 enum Command {
-    /// 初始化配置并录入 Machine Identity 凭证（入钥匙串）
+    /// 交互选择配置 local / cloud 后端并录入凭证
     Init,
     /// 交互式向分组添加条目（api-key / login / note）
     Add { group: String },
@@ -43,10 +51,20 @@ enum Command {
     },
     /// 输出 export ENV=... 行，可 eval
     Export { group: String },
-    /// 容错解析旧 ini 文件，逐条确认后上传
+    /// 容错解析旧 ini 文件，逐条确认后写入当前后端
     Import { file: PathBuf },
+    /// 在 local 与 cloud 之间同步
+    Sync {
+        /// 目标后端：cloud 或 local；缺省交互选择
+        #[arg(long, value_parser = ["cloud", "local"])]
+        to: Option<String>,
+        /// 冲突时直接用源覆盖目标，不再逐条询问
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
-    commands::run(Cli::parse().command)
+    let cli = Cli::parse();
+    commands::run(cli.command, cli.local, cli.cloud)
 }

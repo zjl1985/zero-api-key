@@ -3,12 +3,32 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    Local,
+    Cloud,
+}
+
+impl Backend {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Backend::Local => "local",
+            Backend::Cloud => "cloud",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub api_base: String,
-    pub project_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     #[serde(default = "default_environment")]
     pub environment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_mode: Option<Backend>,
 }
 
 fn default_environment() -> String {
@@ -16,6 +36,15 @@ fn default_environment() -> String {
 }
 
 impl Config {
+    pub fn empty() -> Self {
+        Self {
+            api_base: None,
+            project_id: None,
+            environment: default_environment(),
+            default_mode: None,
+        }
+    }
+
     pub fn path() -> Result<PathBuf> {
         let home = dirs::home_dir().context("无法定位 home 目录")?;
         Ok(home.join(".zero-api-key").join("config.toml"))
@@ -52,18 +81,31 @@ project_id = "pid"
         )
         .unwrap();
         assert_eq!(config.environment, "dev");
+        assert_eq!(config.default_mode, None);
     }
 
     #[test]
-    fn roundtrip() {
-        let config = Config {
-            api_base: "https://example.com".into(),
-            project_id: "p1".into(),
-            environment: "prod".into(),
-        };
+    fn legacy_cloud_config_without_default_mode_parses() {
+        let config: Config = toml::from_str(
+            r#"
+api_base = "https://app.infisical.com"
+project_id = "pid"
+environment = "dev"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.api_base.as_deref(), Some("https://app.infisical.com"));
+        assert_eq!(config.default_mode, None);
+    }
+
+    #[test]
+    fn roundtrip_with_backend() {
+        let mut config = Config::empty();
+        config.default_mode = Some(Backend::Local);
         let text = toml::to_string_pretty(&config).unwrap();
+        assert!(text.contains("default_mode = \"local\""));
+        assert!(!text.contains("api_base"));
         let parsed: Config = toml::from_str(&text).unwrap();
-        assert_eq!(parsed.api_base, "https://example.com");
-        assert_eq!(parsed.environment, "prod");
+        assert_eq!(parsed.default_mode, Some(Backend::Local));
     }
 }

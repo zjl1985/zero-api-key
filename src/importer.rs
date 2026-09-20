@@ -1,23 +1,7 @@
 use crate::models::normalize_key;
+use crate::store::EntryType;
 
 const API_KEY_PREFIXES: &[&str] = &["sk-", "xai-", "sk-or-", "tvly-", "ghp_", "gho_", "ak-"];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EntryType {
-    ApiKey,
-    Login,
-    Note,
-}
-
-impl EntryType {
-    pub fn label(&self) -> &'static str {
-        match self {
-            EntryType::ApiKey => "api-key",
-            EntryType::Login => "login",
-            EntryType::Note => "note",
-        }
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedEntry {

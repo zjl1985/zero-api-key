@@ -34,7 +34,6 @@ pub struct Secret {
     #[serde(default)]
     pub secret_value: String,
     #[serde(default)]
-    #[allow(dead_code)]
     pub secret_comment: String,
     #[serde(default)]
     pub secret_metadata: Vec<SecretMetadata>,
