@@ -1,6 +1,9 @@
 # zero-api-key
 
-个人密钥管理 CLI（Rust），**双后端**：本地加密保险库 + Infisical Cloud，两边可以互相同步。替代散落在 ini 文件里的明文密码和 API key。
+个人密钥管理工具（Rust），**双后端**：本地加密保险库 + Infisical Cloud，两边可以互相同步。替代散落在 ini 文件里的明文密码和 API key。
+
+- `zak`：CLI（`src-tauri` 下的 bin target）
+- `ZeroApiKey`：Tauri 2 + Preact 桌面应用（`pnpm tauri dev` / `pnpm tauri build`），功能与 CLI 等价
 
 ## 架构
 
@@ -61,6 +64,8 @@ zak sync [--to cloud|--to local]       # 缺省交互选方向
 
 ## 技术栈
 
+- `tauri` 2 — 桌面壳（`src-tauri`，`zero_api_key_lib` 同时承载 CLI 与 Tauri commands）
+- `preact` + `vite` + `pnpm` — 前端（`src/`，结构照搬 codex_clear）
 - `clap`（derive）— CLI
 - `reqwest`（blocking + rustls）— Cloud API
 - `chacha20poly1305` + `rand` + `base64` — 本地保险库加密

@@ -228,6 +228,11 @@ impl CloudStore {
             client: Client::with_token(&api_base, &token),
         })
     }
+
+    pub fn create_group(&self, group: &str) -> Result<()> {
+        self.client
+            .ensure_folder(&self.project_id, &self.environment, group)
+    }
 }
 
 impl Store for CloudStore {

@@ -1,13 +1,26 @@
 [package]
 name = "zero-api-key"
 version = "0.1.0"
+description = "Personal secret manager: local encrypted vault + Infisical Cloud"
 edition = "2024"
+
+[lib]
+name = "zero_api_key_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
 name = "zak"
 path = "src/main.rs"
 
+[[bin]]
+name = "zero-api-key"
+path = "src/desktop.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
+tauri = { version = "2", features = [] }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -23,3 +36,10 @@ base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -44,6 +44,12 @@ impl LocalStore {
         Self { path, key }
     }
 
+    pub fn create_group(&self, group: &str) -> Result<()> {
+        let mut vault = self.load()?;
+        vault.groups.entry(group.to_string()).or_default();
+        self.save(&vault)
+    }
+
     fn load(&self) -> Result<Vault> {
         if !self.path.exists() {
             return Ok(Vault::default());
@@ -106,6 +112,12 @@ impl Store for LocalStore {
         }
         self.save(&vault)
     }
+}
+
+pub fn is_configured() -> bool {
+    KeyringEntry::new(KEYRING_SERVICE, MASTER_KEY_ENTRY)
+        .and_then(|e| e.get_password())
+        .is_ok()
 }
 
 pub fn master_key() -> Result<[u8; 32]> {

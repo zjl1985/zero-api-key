@@ -12,8 +12,8 @@ use crate::config::{Backend, Config};
 use crate::importer;
 use crate::local_store::LocalStore;
 use crate::models::{mask, normalize_key};
+use crate::cli::Command;
 use crate::store::{self, Entry, EntryType, Store, SyncAction};
-use crate::Command;
 
 const DEFAULT_API_BASE: &str = "https://app.infisical.com";
 const RATE_LIMIT_DELAY: Duration = Duration::from_millis(700);
