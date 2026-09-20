@@ -585,6 +585,11 @@ button {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.field input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .radio-row {
   display: flex;
   align-items: center;

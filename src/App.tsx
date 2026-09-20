@@ -16,6 +16,7 @@ import {
 } from "./i18n";
 import {
   CopyIcon,
+  EditIcon,
   ExportIcon,
   EyeIcon,
   EyeOffIcon,
@@ -80,6 +81,12 @@ export default function App() {
   const [confirmState, setConfirmState] = useState<{
     message: string;
     resolve: (ok: boolean) => void;
+  } | null>(null);
+  const [editTarget, setEditTarget] = useState<{
+    key: string;
+    value: string;
+    entryType: string;
+    envName: string | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const revealTimers = useRef<Record<string, number>>({});
@@ -186,6 +193,22 @@ export default function App() {
       const value = revealed[key] ?? (await api.revealEntry(mode, group, key));
       await copyText(value);
       showToast(t.copiedToast(key));
+    } catch (e) {
+      setError(errText(e));
+    }
+  };
+
+  const openEdit = async (entry: EntryView) => {
+    if (!mode || !group) return;
+    try {
+      const value = await api.revealEntry(mode, group, entry.key);
+      setEditTarget({
+        key: entry.key,
+        value,
+        entryType: entry.entryType,
+        envName: entry.envName,
+      });
+      setDialog("add");
     } catch (e) {
       setError(errText(e));
     }
@@ -298,7 +321,13 @@ export default function App() {
                   <span class="crumb-sep">/</span>
                   <span>{group}</span>
                 </nav>
-                <button class="btn" onClick={() => setDialog("add")}>
+                <button
+                  class="btn"
+                  onClick={() => {
+                    setEditTarget(null);
+                    setDialog("add");
+                  }}
+                >
                   <PlusIcon size={14} /> {t.addEntry}
                 </button>
                 <button class="btn" onClick={exportGroup}>
@@ -359,6 +388,13 @@ export default function App() {
                           </button>
                           <button
                             class="icon-btn"
+                            title={t.edit}
+                            onClick={() => openEdit(entry)}
+                          >
+                            <EditIcon />
+                          </button>
+                          <button
+                            class="icon-btn"
                             title={t.copyPlaintext}
                             onClick={() => copyEntry(entry.key)}
                           >
@@ -386,6 +422,7 @@ export default function App() {
         <AddEntryDialog
           t={t}
           busy={busy}
+          initial={editTarget}
           onClose={() => setDialog(null)}
           onSubmit={async (input) => {
             setBusy(true);
@@ -542,6 +579,12 @@ function NewGroupDialog(props: {
 function AddEntryDialog(props: {
   t: Strings;
   busy: boolean;
+  initial?: {
+    key: string;
+    value: string;
+    entryType: string;
+    envName: string | null;
+  } | null;
   onClose: () => void;
   onSubmit: (input: {
     key: string;
@@ -551,18 +594,19 @@ function AddEntryDialog(props: {
   }) => void;
 }) {
   const { t } = props;
-  const [entryType, setEntryType] = useState("api-key");
-  const [key, setKey] = useState("API_KEY");
-  const [value, setValue] = useState("");
-  const [envName, setEnvName] = useState("");
+  const editing = !!props.initial;
+  const [entryType, setEntryType] = useState(props.initial?.entryType ?? "api-key");
+  const [key, setKey] = useState(props.initial?.key ?? "API_KEY");
+  const [value, setValue] = useState(props.initial?.value ?? "");
+  const [envName, setEnvName] = useState(props.initial?.envName ?? "");
 
   const changeType = (type: string) => {
     setEntryType(type);
-    setKey(type === "login" ? "PASSWORD" : type === "note" ? "NOTE" : "API_KEY");
+    if (!editing) setKey(type === "login" ? "PASSWORD" : type === "note" ? "NOTE" : "API_KEY");
   };
 
   return (
-    <Modal title={t.addEntryTitle} onClose={props.onClose}>
+    <Modal title={editing ? t.editEntryTitle : t.addEntryTitle} onClose={props.onClose}>
       <label class="field">
         <span>{t.colType}</span>
         <select
@@ -576,12 +620,16 @@ function AddEntryDialog(props: {
       </label>
       <label class="field">
         <span>{t.keyLabel}</span>
-        <input value={key} onInput={(e) => setKey((e.target as HTMLInputElement).value)} />
+        <input
+          value={key}
+          disabled={editing}
+          onInput={(e) => setKey((e.target as HTMLInputElement).value)}
+        />
       </label>
       <label class="field">
         <span>{t.valueLabel}</span>
         <input
-          type="password"
+          type={editing ? "text" : "password"}
           value={value}
           onInput={(e) => setValue((e.target as HTMLInputElement).value)}
         />

@@ -25,6 +25,7 @@ export interface Strings {
   maskAgain: string;
   revealFor5s: string;
   copyPlaintext: string;
+  edit: string;
   delete: string;
   confirmTitle: string;
   cancel: string;
@@ -35,6 +36,7 @@ export interface Strings {
   groupNamePlaceholder: string;
   create: string;
   addEntryTitle: string;
+  editEntryTitle: string;
   keyLabel: string;
   valueLabel: string;
   envLabel: string;
@@ -108,6 +110,7 @@ const en: Strings = {
   maskAgain: "Mask again",
   revealFor5s: "Reveal for 5s",
   copyPlaintext: "Copy plaintext",
+  edit: "Edit",
   delete: "Delete",
   confirmTitle: "Confirm",
   cancel: "Cancel",
@@ -118,6 +121,7 @@ const en: Strings = {
   groupNamePlaceholder: "e.g. openai",
   create: "Create",
   addEntryTitle: "Add Entry",
+  editEntryTitle: "Edit Entry",
   keyLabel: "Key (auto-converted to UPPER_SNAKE)",
   valueLabel: "Value",
   envLabel: "Environment variable name (optional)",
@@ -194,6 +198,7 @@ const zh: Strings = {
   maskAgain: "重新掩码",
   revealFor5s: "显示 5 秒",
   copyPlaintext: "复制明文",
+  edit: "编辑",
   delete: "删除",
   confirmTitle: "确认操作",
   cancel: "取消",
@@ -204,6 +209,7 @@ const zh: Strings = {
   groupNamePlaceholder: "如 openai",
   create: "创建",
   addEntryTitle: "添加条目",
+  editEntryTitle: "编辑条目",
   keyLabel: "键名（自动转为 UPPER_SNAKE）",
   valueLabel: "值",
   envLabel: "环境变量名（可空）",
