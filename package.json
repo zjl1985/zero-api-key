@@ -9,7 +9,8 @@
     "check": "tsc --noEmit",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "dist": "tauri build && mkdir -p dist && rm -rf dist/ZeroApiKey.app dist/ZeroApiKey_*_aarch64.dmg && cp -R src-tauri/target/release/bundle/macos/ZeroApiKey.app dist/ && cp src-tauri/target/release/bundle/dmg/ZeroApiKey_*_aarch64.dmg dist/"
   },
   "dependencies": {
     "preact": "^10.25.1",
