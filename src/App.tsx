@@ -8,12 +8,13 @@ import type {
   SyncStats,
 } from "./types";
 import {
-  BackIcon,
   CopyIcon,
   ExportIcon,
   EyeIcon,
   EyeOffIcon,
+  FolderIcon,
   ImportIcon,
+  LockIcon,
   PlusIcon,
   SettingsIcon,
   SyncIcon,
@@ -46,6 +47,10 @@ async function copyText(text: string): Promise<void> {
   }
 }
 
+function backendLabel(b: Backend): string {
+  return b === "local" ? "本地" : "云端";
+}
+
 export default function App() {
   const [status, setStatus] = useState<StatusInfo | null>(null);
   const [mode, setMode] = useState<Backend | null>(null);
@@ -55,8 +60,13 @@ export default function App() {
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"vault" | "settings">("vault");
-  const [dialog, setDialog] = useState<"add" | "import" | "sync" | null>(null);
+  const [dialog, setDialog] = useState<
+    "add" | "import" | "sync" | "settings" | "newGroup" | null
+  >(null);
+  const [confirmState, setConfirmState] = useState<{
+    message: string;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const revealTimers = useRef<Record<string, number>>({});
   const toastTimer = useRef<number | undefined>(undefined);
@@ -66,6 +76,12 @@ export default function App() {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), 3000);
   }, []);
+
+  const askConfirm = useCallback(
+    (message: string) =>
+      new Promise<boolean>((resolve) => setConfirmState({ message, resolve })),
+    [],
+  );
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -85,20 +101,17 @@ export default function App() {
     refreshStatus();
   }, [refreshStatus]);
 
-  const reloadGroups = useCallback(
-    async (m: Backend) => {
-      try {
-        const list = await api.listGroups(m);
-        setGroups(list);
-        setGroup((current) => (current && list.includes(current) ? current : null));
-        setError(null);
-      } catch (e) {
-        setGroups([]);
-        setError(errText(e));
-      }
-    },
-    [],
-  );
+  const reloadGroups = useCallback(async (m: Backend) => {
+    try {
+      const list = await api.listGroups(m);
+      setGroups(list);
+      setGroup((current) => (current && list.includes(current) ? current : null));
+      setError(null);
+    } catch (e) {
+      setGroups([]);
+      setError(errText(e));
+    }
+  }, []);
 
   useEffect(() => {
     if (mode) reloadGroups(mode);
@@ -166,7 +179,7 @@ export default function App() {
 
   const removeEntry = async (key: string) => {
     if (!mode || !group) return;
-    if (!window.confirm(`删除 ${group}/${key}？`)) return;
+    if (!(await askConfirm(`删除条目 ${group} / ${key}？`))) return;
     try {
       await api.removeEntry(mode, group, key);
       await reloadEntries(mode, group);
@@ -179,7 +192,7 @@ export default function App() {
 
   const removeGroup = async () => {
     if (!mode || !group) return;
-    if (!window.confirm(`删除整个分组 ${group}（含全部条目）？`)) return;
+    if (!(await askConfirm(`删除整个分组 ${group}（含全部条目）？`))) return;
     try {
       await api.removeGroup(mode, group);
       setGroup(null);
@@ -201,40 +214,13 @@ export default function App() {
     }
   };
 
-  const newGroup = async () => {
-    if (!mode) return;
-    const name = window.prompt("新分组名（如 openai）");
-    if (!name?.trim()) return;
-    try {
-      await api.createGroup(mode, name.trim());
-      await reloadGroups(mode);
-      setGroup(name.trim());
-    } catch (e) {
-      setError(errText(e));
-    }
-  };
-
-  if (view === "settings") {
-    return (
-      <div class="app">
-        <SettingsView
-          status={status}
-          onBack={() => {
-            setView("vault");
-            refreshStatus();
-          }}
-          onError={setError}
-          onToast={showToast}
-        />
-        {toast && <div class="toast">{toast}</div>}
-      </div>
-    );
-  }
-
   return (
     <div class="app">
       <header class="topbar">
-        <span class="brand">ZeroApiKey</span>
+        <div class="brand">
+          <LockIcon size={16} />
+          <span>ZeroApiKey</span>
+        </div>
         <div class="backend-switch">
           {(["local", "cloud"] as Backend[]).map((b) => (
             <button
@@ -243,11 +229,11 @@ export default function App() {
               onClick={() => switchMode(b)}
             >
               <span class={`dot ${ready(b) ? "ok" : "off"}`} />
-              {b === "local" ? "本地" : "云端"}
+              {backendLabel(b)}
             </button>
           ))}
         </div>
-        <button class="icon-btn" title="设置" onClick={() => setView("settings")}>
+        <button class="icon-btn" title="设置" onClick={() => setDialog("settings")}>
           <SettingsIcon />
         </button>
       </header>
@@ -262,11 +248,16 @@ export default function App() {
         <aside class="sidebar">
           <div class="sidebar-head">
             <span>分组</span>
-            <button class="icon-btn" title="新建分组" onClick={newGroup}>
+            <button class="icon-btn" title="新建分组" onClick={() => setDialog("newGroup")}>
               <PlusIcon />
             </button>
           </div>
-          {groups.length === 0 && <div class="sidebar-empty">暂无分组</div>}
+          {groups.length === 0 && (
+            <div class="sidebar-empty">
+              <p>还没有分组</p>
+              <p class="dim">点上方 + 新建</p>
+            </div>
+          )}
           {groups.map((g) => (
             <button
               key={g}
@@ -280,11 +271,19 @@ export default function App() {
 
         <main class="main">
           {group === null ? (
-            <div class="placeholder">选择左侧分组，或新建一个分组</div>
+            <div class="empty-state">
+              <FolderIcon size={40} />
+              <p class="empty-title">未选择分组</p>
+              <p class="empty-hint">从左侧选择一个分组查看其中的密钥条目</p>
+            </div>
           ) : (
             <>
               <div class="toolbar">
-                <span class="toolbar-title">{group}</span>
+                <nav class="breadcrumb">
+                  <span class="dim">{mode ? backendLabel(mode) : ""}</span>
+                  <span class="crumb-sep">/</span>
+                  <span>{group}</span>
+                </nav>
                 <button class="btn" onClick={() => setDialog("add")}>
                   <PlusIcon size={14} /> 添加条目
                 </button>
@@ -303,7 +302,11 @@ export default function App() {
               </div>
 
               {entries.length === 0 ? (
-                <div class="placeholder">该分组下没有条目</div>
+                <div class="empty-state">
+                  <LockIcon size={40} />
+                  <p class="empty-title">此分组还没有条目</p>
+                  <p class="empty-hint">点击工具栏「添加条目」写入第一个密钥</p>
+                </div>
               ) : (
                 <table class="entries">
                   <thead>
@@ -324,8 +327,12 @@ export default function App() {
                           </span>
                         </td>
                         <td class="mono">{entry.key}</td>
-                        <td class="mono value-cell">
-                          {revealed[entry.key] ?? entry.maskedValue}
+                        <td class="value-cell">
+                          {revealed[entry.key] ? (
+                            <span class="mono revealed">{revealed[entry.key]}</span>
+                          ) : (
+                            <span class="dots">••••••••••</span>
+                          )}
                         </td>
                         <td class="mono dim">{entry.envName ?? "—"}</td>
                         <td class="actions-cell">
@@ -382,6 +389,7 @@ export default function App() {
       )}
       {dialog === "import" && mode && (
         <ImportDialog
+          mode={mode}
           onClose={() => setDialog(null)}
           onDone={async (count) => {
             setDialog(null);
@@ -389,15 +397,114 @@ export default function App() {
             if (group) await reloadEntries(mode, group);
             showToast(`导入完成，写入 ${count} 条`);
           }}
-          mode={mode}
           onError={setError}
         />
       )}
       {dialog === "sync" && (
         <SyncDialog onClose={() => setDialog(null)} onError={setError} />
       )}
+      {dialog === "settings" && (
+        <SettingsDialog
+          status={status}
+          onClose={() => {
+            setDialog(null);
+            refreshStatus();
+          }}
+          onError={setError}
+          onToast={showToast}
+        />
+      )}
+      {dialog === "newGroup" && mode && (
+        <NewGroupDialog
+          onClose={() => setDialog(null)}
+          onSubmit={async (name) => {
+            try {
+              await api.createGroup(mode, name);
+              setDialog(null);
+              await reloadGroups(mode);
+              setGroup(name);
+            } catch (e) {
+              setError(errText(e));
+            }
+          }}
+        />
+      )}
+      {confirmState && (
+        <ConfirmDialog
+          message={confirmState.message}
+          onResult={(ok) => {
+            confirmState.resolve(ok);
+            setConfirmState(null);
+          }}
+        />
+      )}
       {toast && <div class="toast">{toast}</div>}
     </div>
+  );
+}
+
+function Modal(props: {
+  title: string;
+  wide?: boolean;
+  onClose: () => void;
+  children: preact.ComponentChildren;
+}) {
+  return (
+    <div class="backdrop" onClick={props.onClose}>
+      <div
+        class={`dialog ${props.wide ? "wide" : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div class="dialog-head">
+          <h2>{props.title}</h2>
+        </div>
+        {props.children}
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDialog(props: { message: string; onResult: (ok: boolean) => void }) {
+  return (
+    <Modal title="确认操作" onClose={() => props.onResult(false)}>
+      <p class="confirm-text">{props.message}</p>
+      <div class="dialog-actions">
+        <button class="btn" onClick={() => props.onResult(false)}>
+          取消
+        </button>
+        <button class="btn primary danger-solid" onClick={() => props.onResult(true)}>
+          确认删除
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function NewGroupDialog(props: { onClose: () => void; onSubmit: (name: string) => void }) {
+  const [name, setName] = useState("");
+  return (
+    <Modal title="新建分组" onClose={props.onClose}>
+      <label class="field">
+        <span>分组名</span>
+        <input
+          value={name}
+          placeholder="如 openai"
+          onInput={(e) => setName((e.target as HTMLInputElement).value)}
+        />
+      </label>
+      <div class="dialog-actions">
+        <button class="btn" onClick={props.onClose}>
+          取消
+        </button>
+        <button
+          class="btn primary"
+          disabled={!name.trim()}
+          onClick={() => props.onSubmit(name.trim())}
+        >
+          创建
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -422,60 +529,60 @@ function AddEntryDialog(props: {
   };
 
   return (
-    <div class="backdrop" onClick={props.onClose}>
-      <div class="dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>添加条目</h2>
+    <Modal title="添加条目" onClose={props.onClose}>
+      <label class="field">
+        <span>类型</span>
+        <select
+          value={entryType}
+          onChange={(e) => changeType((e.target as HTMLSelectElement).value)}
+        >
+          <option value="api-key">API Key</option>
+          <option value="login">登录</option>
+          <option value="note">笔记</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>键名（自动转为 UPPER_SNAKE）</span>
+        <input value={key} onInput={(e) => setKey((e.target as HTMLInputElement).value)} />
+      </label>
+      <label class="field">
+        <span>值</span>
+        <input
+          type="password"
+          value={value}
+          onInput={(e) => setValue((e.target as HTMLInputElement).value)}
+        />
+      </label>
+      {entryType === "api-key" && (
         <label class="field">
-          <span>类型</span>
-          <select value={entryType} onChange={(e) => changeType((e.target as HTMLSelectElement).value)}>
-            <option value="api-key">API Key</option>
-            <option value="login">登录</option>
-            <option value="note">笔记</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>键名（自动转为 UPPER_SNAKE）</span>
-          <input value={key} onInput={(e) => setKey((e.target as HTMLInputElement).value)} />
-        </label>
-        <label class="field">
-          <span>值</span>
+          <span>环境变量名（可空）</span>
           <input
-            type="password"
-            value={value}
-            onInput={(e) => setValue((e.target as HTMLInputElement).value)}
+            value={envName}
+            placeholder="如 OPENAI_API_KEY"
+            onInput={(e) => setEnvName((e.target as HTMLInputElement).value)}
           />
         </label>
-        {entryType === "api-key" && (
-          <label class="field">
-            <span>环境变量名（可空）</span>
-            <input
-              value={envName}
-              placeholder="如 OPENAI_API_KEY"
-              onInput={(e) => setEnvName((e.target as HTMLInputElement).value)}
-            />
-          </label>
-        )}
-        <div class="dialog-actions">
-          <button class="btn" onClick={props.onClose}>
-            取消
-          </button>
-          <button
-            class="btn primary"
-            disabled={props.busy || !key.trim() || !value}
-            onClick={() =>
-              props.onSubmit({
-                key: key.trim(),
-                value,
-                entryType,
-                envName: envName.trim() || null,
-              })
-            }
-          >
-            保存
-          </button>
-        </div>
+      )}
+      <div class="dialog-actions">
+        <button class="btn" onClick={props.onClose}>
+          取消
+        </button>
+        <button
+          class="btn primary"
+          disabled={props.busy || !key.trim() || !value}
+          onClick={() =>
+            props.onSubmit({
+              key: key.trim(),
+              value,
+              entryType,
+              envName: envName.trim() || null,
+            })
+          }
+        >
+          保存
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -527,87 +634,80 @@ function ImportDialog(props: {
   const selectedCount = Object.values(checked).filter(Boolean).length;
 
   return (
-    <div class="backdrop" onClick={props.onClose}>
-      <div class="dialog wide" onClick={(e) => e.stopPropagation()}>
-        <h2>导入 ini 文件</h2>
-        <div class="import-path">
-          <input
-            value={path}
-            placeholder="文件绝对路径，如 /Users/you/Documents/api_key.ini"
-            onInput={(e) => setPath((e.target as HTMLInputElement).value)}
-          />
-          <button class="btn primary" disabled={busy || !path.trim()} onClick={parse}>
-            解析
-          </button>
-        </div>
-        {items && (
-          <>
-            {items.length === 0 ? (
-              <div class="placeholder">未解析到任何条目</div>
-            ) : (
-              <>
-                <div class="import-meta">
-                  解析到 {items.length} 条，勾选 {selectedCount} 条
-                  <button
-                    class="btn small"
-                    onClick={() =>
-                      setChecked(
-                        Object.fromEntries(
-                          items.map((_, i) => [i, selectedCount < items.length]),
-                        ),
-                      )
-                    }
-                  >
-                    {selectedCount < items.length ? "全选" : "全不选"}
-                  </button>
-                </div>
-                <div class="import-list">
-                  {items.map((item, i) => (
-                    <label class="import-row" key={i}>
-                      <input
-                        type="checkbox"
-                        checked={!!checked[i]}
-                        onChange={(e) =>
-                          setChecked((c) => ({
-                            ...c,
-                            [i]: (e.target as HTMLInputElement).checked,
-                          }))
-                        }
-                      />
-                      <span class="dim">{item.group ?? "(未分组)"}</span>
-                      <span class={`badge badge-${item.entryType}`}>
-                        {TYPE_LABELS[item.entryType] ?? item.entryType}
-                      </span>
-                      <span class="mono">{item.key}</span>
-                      <span class="mono dim">{item.maskedValue}</span>
-                    </label>
-                  ))}
-                </div>
-              </>
-            )}
-          </>
-        )}
-        <div class="dialog-actions">
-          <button class="btn" onClick={props.onClose}>
-            取消
-          </button>
-          <button
-            class="btn primary"
-            disabled={busy || !items || selectedCount === 0}
-            onClick={commit}
-          >
-            写入 {selectedCount} 条
-          </button>
-        </div>
+    <Modal title="导入 ini 文件" wide onClose={props.onClose}>
+      <div class="import-path">
+        <input
+          value={path}
+          placeholder="文件绝对路径，如 /Users/you/Documents/api_key.ini"
+          onInput={(e) => setPath((e.target as HTMLInputElement).value)}
+        />
+        <button class="btn primary" disabled={busy || !path.trim()} onClick={parse}>
+          解析
+        </button>
       </div>
-    </div>
+      {items &&
+        (items.length === 0 ? (
+          <p class="dim">未解析到任何条目</p>
+        ) : (
+          <>
+            <div class="import-meta">
+              <span>
+                解析到 {items.length} 条，勾选 {selectedCount} 条
+              </span>
+              <button
+                class="btn small"
+                onClick={() =>
+                  setChecked(
+                    Object.fromEntries(
+                      items.map((_, i) => [i, selectedCount < items.length]),
+                    ),
+                  )
+                }
+              >
+                {selectedCount < items.length ? "全选" : "全不选"}
+              </button>
+            </div>
+            <div class="import-list">
+              {items.map((item, i) => (
+                <label class="import-row" key={i}>
+                  <input
+                    type="checkbox"
+                    checked={!!checked[i]}
+                    onChange={(e) =>
+                      setChecked((c) => ({
+                        ...c,
+                        [i]: (e.target as HTMLInputElement).checked,
+                      }))
+                    }
+                  />
+                  <span class="dim">{item.group ?? "(未分组)"}</span>
+                  <span class={`badge badge-${item.entryType}`}>
+                    {TYPE_LABELS[item.entryType] ?? item.entryType}
+                  </span>
+                  <span class="mono">{item.key}</span>
+                  <span class="dots">••••••••••</span>
+                </label>
+              ))}
+            </div>
+          </>
+        ))}
+      <div class="dialog-actions">
+        <button class="btn" onClick={props.onClose}>
+          取消
+        </button>
+        <button
+          class="btn primary"
+          disabled={busy || !items || selectedCount === 0}
+          onClick={commit}
+        >
+          写入 {selectedCount} 条
+        </button>
+      </div>
+    </Modal>
   );
 }
 
-function SyncDialog(props: {
-  onClose: () => void;
-  onError: (msg: string) => void;
-}) {
+function SyncDialog(props: { onClose: () => void; onError: (msg: string) => void }) {
   const [direction, setDirection] = useState("local-to-cloud");
   const [result, setResult] = useState<SyncStats | null>(null);
   const [busy, setBusy] = useState(false);
@@ -624,49 +724,46 @@ function SyncDialog(props: {
   };
 
   return (
-    <div class="backdrop" onClick={props.onClose}>
-      <div class="dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>同步</h2>
-        <label class="radio-row">
-          <input
-            type="radio"
-            name="direction"
-            checked={direction === "local-to-cloud"}
-            onChange={() => setDirection("local-to-cloud")}
-          />
-          本地 → 云端
-        </label>
-        <label class="radio-row">
-          <input
-            type="radio"
-            name="direction"
-            checked={direction === "cloud-to-local"}
-            onChange={() => setDirection("cloud-to-local")}
-          />
-          云端 → 本地
-        </label>
-        <p class="dim">冲突策略：保留源（覆盖目标）</p>
-        {result && (
-          <p class="sync-result">
-            完成：新增 {result.added}，更新 {result.updated}，跳过 {result.skipped}
-          </p>
-        )}
-        <div class="dialog-actions">
-          <button class="btn" onClick={props.onClose}>
-            关闭
-          </button>
-          <button class="btn primary" disabled={busy} onClick={run}>
-            {busy ? "同步中…" : "开始同步"}
-          </button>
-        </div>
+    <Modal title="同步" onClose={props.onClose}>
+      <label class="radio-row">
+        <input
+          type="radio"
+          name="direction"
+          checked={direction === "local-to-cloud"}
+          onChange={() => setDirection("local-to-cloud")}
+        />
+        本地 → 云端
+      </label>
+      <label class="radio-row">
+        <input
+          type="radio"
+          name="direction"
+          checked={direction === "cloud-to-local"}
+          onChange={() => setDirection("cloud-to-local")}
+        />
+        云端 → 本地
+      </label>
+      <p class="dim">冲突策略：保留源（覆盖目标）</p>
+      {result && (
+        <p class="sync-result">
+          完成：新增 {result.added}，更新 {result.updated}，跳过 {result.skipped}
+        </p>
+      )}
+      <div class="dialog-actions">
+        <button class="btn" onClick={props.onClose}>
+          关闭
+        </button>
+        <button class="btn primary" disabled={busy} onClick={run}>
+          {busy ? "同步中…" : "开始同步"}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
-function SettingsView(props: {
+function SettingsDialog(props: {
   status: StatusInfo | null;
-  onBack: () => void;
+  onClose: () => void;
   onError: (msg: string) => void;
   onToast: (msg: string) => void;
 }) {
@@ -680,7 +777,7 @@ function SettingsView(props: {
   const changeDefault = async (m: Backend) => {
     try {
       await api.setDefaultMode(m);
-      props.onToast(`默认后端已切换为 ${m === "local" ? "本地" : "云端"}`);
+      props.onToast(`默认后端已切换为${backendLabel(m)}`);
     } catch (e) {
       props.onError(errText(e));
     }
@@ -689,7 +786,13 @@ function SettingsView(props: {
   const initCloud = async () => {
     setBusy(true);
     try {
-      await api.initCloud(apiBase.trim(), projectId.trim(), environment.trim(), clientId.trim(), clientSecret);
+      await api.initCloud(
+        apiBase.trim(),
+        projectId.trim(),
+        environment.trim(),
+        clientId.trim(),
+        clientSecret,
+      );
       props.onToast("cloud 后端已配置并验证连通");
       setClientSecret("");
     } catch (e) {
@@ -700,16 +803,9 @@ function SettingsView(props: {
   };
 
   return (
-    <div class="settings">
-      <div class="settings-head">
-        <button class="icon-btn" title="返回" onClick={props.onBack}>
-          <BackIcon />
-        </button>
-        <h1>设置</h1>
-      </div>
-
+    <Modal title="设置" onClose={props.onClose}>
       <section class="settings-section">
-        <h2>默认后端</h2>
+        <h3>默认后端</h3>
         <label class="radio-row">
           <input
             type="radio"
@@ -728,35 +824,45 @@ function SettingsView(props: {
           />
           云端（cloud）
         </label>
-        <p class="dim">
-          本地保险库主密钥在首次使用时自动生成并存入系统钥匙串，无需手动配置。
-        </p>
+        <p class="dim">本地保险库主密钥在首次使用时自动生成并存入系统钥匙串。</p>
       </section>
 
       <section class="settings-section">
-        <h2>
+        <h3>
           云端（Infisical）
           {props.status?.cloudReady ? (
             <span class="badge badge-api-key">已配置</span>
           ) : (
             <span class="badge badge-note">未配置</span>
           )}
-        </h2>
+        </h3>
         <label class="field">
           <span>API base</span>
-          <input value={apiBase} onInput={(e) => setApiBase((e.target as HTMLInputElement).value)} />
+          <input
+            value={apiBase}
+            onInput={(e) => setApiBase((e.target as HTMLInputElement).value)}
+          />
         </label>
         <label class="field">
           <span>Project ID</span>
-          <input value={projectId} onInput={(e) => setProjectId((e.target as HTMLInputElement).value)} />
+          <input
+            value={projectId}
+            onInput={(e) => setProjectId((e.target as HTMLInputElement).value)}
+          />
         </label>
         <label class="field">
           <span>Environment</span>
-          <input value={environment} onInput={(e) => setEnvironment((e.target as HTMLInputElement).value)} />
+          <input
+            value={environment}
+            onInput={(e) => setEnvironment((e.target as HTMLInputElement).value)}
+          />
         </label>
         <label class="field">
           <span>Client ID</span>
-          <input value={clientId} onInput={(e) => setClientId((e.target as HTMLInputElement).value)} />
+          <input
+            value={clientId}
+            onInput={(e) => setClientId((e.target as HTMLInputElement).value)}
+          />
         </label>
         <label class="field">
           <span>Client Secret</span>
@@ -774,6 +880,6 @@ function SettingsView(props: {
           {busy ? "验证中…" : "验证并保存"}
         </button>
       </section>
-    </div>
+    </Modal>
   );
 }
