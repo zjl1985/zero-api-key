@@ -3,4 +3,17 @@ name = "zero-api-key"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "zak"
+path = "src/main.rs"
+
 [dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
+anyhow = "1"
+keyring = "3"
+dirs = "6"
+toml = "0.8"
+dialoguer = "0.11"
