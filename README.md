@@ -1,44 +1,52 @@
 # zero-api-key
 
-本地优先的个人密钥管理 CLI（Rust），灵感来自 [Infisical](https://github.com/infisical/infisical) 的项目/分组模型，但完全本地运行：一个加密的保险库文件 + macOS 钥匙串里的主密钥，替代散落在 ini 文件里的明文密码和 API key。
+个人密钥管理 CLI（Rust），后端使用 [Infisical](https://github.com/infisical/infisical) Cloud，替代散落在 ini 文件里的明文密码和 API key。
 
-## 数据模型
-
-```
-Vault
-└── Group（分组，如 openai / deepseek / cursor / 订阅）
-    └── Secret（条目，三种类型）
-        ├── ApiKey          { name, key, base_url?, env_name? }
-        ├── UsernamePassword{ name, username, password, url? }
-        └── Note            { name, value }      // token、订阅链接等
-```
-
-每个条目带 `tags`、`notes`、`created_at`、`updated_at`。
-
-## 安全设计
-
-- 保险库文件 `~/.zero-api-key/vault.json.enc`，XChaCha20-Poly1305 加密
-- 32 字节随机主密钥存在 macOS 登录钥匙串（service: `zero-api-key`），日常使用不输密码
-- 内存中解密即用即弃；`export` 只输出到 stdout，不写盘
-- 参考 codex_clear 的路径安全校验模式，导入/导出路径做防穿越检查
-
-## 命令规划
+## 架构
 
 ```
-zak init                          # 初始化保险库（生成主密钥入钥匙串）
-zak add <group> <name>            # 交互式添加（类型: api-key / login / note）
-zak get <group>/<name> [--reveal] # 默认掩码显示，--reveal 显示明文
-zak list [group]                  # 列出分组/条目（只显示名称，不显示值）
-zak rm <group>/<name>
+zak (Rust CLI)
+  │  HTTPS REST API + Bearer token
+  ▼
+Infisical Cloud (app.infisical.com)
+  └── Project: zero-api-key
+        └── Environment: dev
+              └── Folder（分组，如 openai / deepseek / cursor）
+                    └── Secret 条目
+```
+
+- **分组 = Folder**：`POST /api/v2/folders`，每个服务一个目录（`openai`、`deepseek`、`cursor` …）
+- **条目 = Secret**：目录下放 `API_KEY` / `USERNAME` / `PASSWORD` / `BASE_URL` / `NOTE` 等键
+  - `POST /api/v4/secrets/{name}` 创建，`PATCH` 更新，`GET /api/v4/secrets` 列出
+  - 额外信息走 `secretMetadata`（如 `type=login`、`env_name=OPENAI_API_KEY`）
+- **认证**：Machine Identity + Universal Auth（client_id / client_secret）
+  - `POST /api/v1/auth/universal-auth/login` 换短期 access token，缓存复用
+  - client_id / client_secret 存 macOS 钥匙串（service: `zero-api-key`），不落盘明文
+
+## 命令
+
+```
+zak init                          # 配置 project + 录入 machine identity 凭证（入钥匙串）
+zak add <group>                   # 交互式添加条目（api-key / login / note）
+zak get <group> [--key NAME] [--reveal]   # 默认掩码，--reveal 显示明文
+zak list [group]                  # 列出分组 / 条目名
+zak rm <group> [--key NAME]
 zak export <group>                # 输出 export ENV=... 形式，可 eval
-zak import <file>                 # 导入旧的 api_key.ini（容错解析 + 人工确认）
+zak import <ini 文件>             # 容错解析旧 api_key.ini，逐条确认后上传
 ```
 
 ## 技术栈
 
 - `clap`（derive）— CLI
-- `serde` / `serde_json` — 数据模型
-- `chacha20poly1305` — 加密
-- `keyring` — macOS 钥匙串存主密钥
+- `reqwest`（blocking + rustls）— HTTPS 客户端
+- `serde` / `serde_json` — API 模型
+- `keyring` — macOS 钥匙串存凭证
 - `anyhow` — 错误处理，分层风格参考 codex_clear
-- `dirs` — 定位数据目录
+- `dirs` — 配置目录（`~/.zero-api-key/config.toml`，只存非敏感配置：API 地址、project id）
+
+## 前置条件（一次性，在 Infisical 网页端操作）
+
+1. 创建 Project：`zero-api-key`
+2. Project → Access Control → Machine Identities 创建身份，启用 **Universal Auth**，拿到 Client ID / Client Secret
+3. 给身份分配项目内 admin（或 developer）角色
+4. `zak init` 时录入以上信息
