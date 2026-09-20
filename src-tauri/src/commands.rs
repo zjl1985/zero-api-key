@@ -26,9 +26,9 @@ pub fn run(command: Command, local: bool, cloud: bool) -> Result<()> {
             let store = resolve_store(local, cloud)?;
             add(store.as_ref(), &group)
         }
-        Command::Get { group, key, reveal } => {
+        Command::Get { group, key, reveal, raw } => {
             let store = resolve_store(local, cloud)?;
-            get(store.as_ref(), &group, key.as_deref(), reveal)
+            get(store.as_ref(), &group, key.as_deref(), reveal, raw)
         }
         Command::List { group } => {
             let store = resolve_store(local, cloud)?;
@@ -212,7 +212,7 @@ fn add(store: &dyn Store, group: &str) -> Result<()> {
     Ok(())
 }
 
-fn get(store: &dyn Store, group: &str, key: Option<&str>, reveal: bool) -> Result<()> {
+fn get(store: &dyn Store, group: &str, key: Option<&str>, reveal: bool, raw: bool) -> Result<()> {
     let filter = match key {
         Some(k) => Some(normalize_key(k).context("键名无效（需要包含字母或数字）")?),
         None => None,
@@ -226,6 +226,10 @@ fn get(store: &dyn Store, group: &str, key: Option<&str>, reveal: bool) -> Resul
             continue;
         }
         found = true;
+        if raw {
+            println!("{}", entry.value);
+            continue;
+        }
         let shown = if reveal {
             entry.value.clone()
         } else {

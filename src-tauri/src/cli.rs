@@ -30,6 +30,9 @@ pub enum Command {
         /// 明文显示
         #[arg(long)]
         reveal: bool,
+        /// 只输出值本身（需配合 --key 和 --reveal），便于 $(zak get ...) 脚本取值
+        #[arg(long, requires = "key", requires = "reveal")]
+        raw: bool,
     },
     /// 列出全部分组，或指定分组内的条目
     List { group: Option<String> },
