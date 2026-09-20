@@ -29,6 +29,8 @@ pub struct Config {
     pub environment: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_mode: Option<Backend>,
+    #[serde(default)]
+    pub touch_id_enabled: bool,
 }
 
 fn default_environment() -> String {
@@ -42,6 +44,7 @@ impl Config {
             project_id: None,
             environment: default_environment(),
             default_mode: None,
+            touch_id_enabled: false,
         }
     }
 
@@ -75,6 +78,12 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn touch_id_defaults_to_disabled() {
+        let config: Config = toml::from_str("").unwrap();
+        assert!(!config.touch_id_enabled);
+    }
 
     #[test]
     fn environment_defaults_to_dev() {

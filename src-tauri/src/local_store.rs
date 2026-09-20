@@ -147,7 +147,9 @@ fn keyring_entry(name: &str) -> Result<KeyringEntry> {
 }
 
 fn load_master_key() -> Result<[u8; 32]> {
-    crate::touch_id::authenticate("解锁 zero-api-key 本地保险库")?;
+    if Config::load().map(|c| c.touch_id_enabled).unwrap_or(false) {
+        crate::touch_id::authenticate("解锁 zero-api-key 本地保险库")?;
+    }
     let entry = keyring_entry(BIO_KEY_ENTRY)?;
     if let Ok(encoded) = entry.get_password() {
         let bytes = B64

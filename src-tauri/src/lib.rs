@@ -29,6 +29,7 @@ pub struct StatusInfo {
     pub default_mode: Option<String>,
     pub local_ready: bool,
     pub cloud_ready: bool,
+    pub touch_id_enabled: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -140,10 +141,12 @@ fn status() -> Result<StatusInfo> {
         && auth::client_credentials()?.is_some();
     Ok(StatusInfo {
         default_mode: config
+            .as_ref()
             .and_then(|c| c.default_mode)
             .map(|b| b.label().to_string()),
         local_ready: local_store::is_configured(),
         cloud_ready,
+        touch_id_enabled: config.map(|c| c.touch_id_enabled).unwrap_or(false),
     })
 }
 
@@ -151,6 +154,12 @@ fn set_default(mode: &str) -> Result<()> {
     let backend = parse_backend(mode)?;
     let mut config = Config::load().unwrap_or_else(|_| Config::empty());
     config.default_mode = Some(backend);
+    config.save()
+}
+
+fn set_touch_id(enabled: bool) -> Result<()> {
+    let mut config = Config::load().unwrap_or_else(|_| Config::empty());
+    config.touch_id_enabled = enabled;
     config.save()
 }
 
@@ -313,6 +322,14 @@ async fn set_default_mode(mode: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn set_touch_id_enabled(enabled: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || set_touch_id(enabled))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e: anyhow::Error| e.to_string())
+}
+
+#[tauri::command]
 async fn list_groups(mode: String) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || open_store(&mode)?.list_groups())
         .await
@@ -433,6 +450,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_status,
             set_default_mode,
+            set_touch_id_enabled,
             list_groups,
             list_entries,
             reveal_entry,

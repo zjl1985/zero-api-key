@@ -63,6 +63,9 @@ export interface Strings {
   language: string;
   defaultBackend: string;
   masterKeyNote: string;
+  touchIdUnlock: string;
+  touchIdRequire: string;
+  touchIdNote: string;
   cloudInfisical: string;
   configured: string;
   notConfigured: string;
@@ -150,6 +153,10 @@ const en: Strings = {
   defaultBackend: "Default backend",
   masterKeyNote:
     "The local vault master key is generated on first use and stored in the system keychain.",
+  touchIdUnlock: "Touch ID unlock",
+  touchIdRequire: "Require Touch ID before reading the vault",
+  touchIdNote:
+    "The vault is always encrypted at rest. Touch ID only adds an unlock prompt on top; it is off by default.",
   cloudInfisical: "Cloud (Infisical)",
   configured: "Configured",
   notConfigured: "Not configured",
@@ -237,6 +244,9 @@ const zh: Strings = {
   language: "语言",
   defaultBackend: "默认后端",
   masterKeyNote: "本地保险库主密钥在首次使用时自动生成并存入系统钥匙串。",
+  touchIdUnlock: "指纹解锁",
+  touchIdRequire: "读取保险库前需要指纹验证",
+  touchIdNote: "保险库始终以密文存储，指纹只是额外的解锁验证，默认关闭。",
   cloudInfisical: "云端（Infisical）",
   configured: "已配置",
   notConfigured: "未配置",

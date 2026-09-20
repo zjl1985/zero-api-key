@@ -863,6 +863,19 @@ function SettingsDialog(props: {
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [busy, setBusy] = useState(false);
+  const [touchIdEnabled, setTouchIdEnabled] = useState(
+    props.status?.touchIdEnabled ?? false,
+  );
+
+  const toggleTouchId = async (enabled: boolean) => {
+    setTouchIdEnabled(enabled);
+    try {
+      await api.setTouchIdEnabled(enabled);
+    } catch (e) {
+      setTouchIdEnabled(!enabled);
+      props.onError(errText(e));
+    }
+  };
 
   const changeDefault = async (m: Backend) => {
     try {
@@ -930,6 +943,19 @@ function SettingsDialog(props: {
           {t.cloudBackend} (cloud)
         </label>
         <p class="dim">{t.masterKeyNote}</p>
+      </section>
+
+      <section class="settings-section">
+        <h3>{t.touchIdUnlock}</h3>
+        <label class="radio-row">
+          <input
+            type="checkbox"
+            checked={touchIdEnabled}
+            onChange={(e) => toggleTouchId((e.target as HTMLInputElement).checked)}
+          />
+          {t.touchIdRequire}
+        </label>
+        <p class="dim">{t.touchIdNote}</p>
       </section>
 
       <section class="settings-section">

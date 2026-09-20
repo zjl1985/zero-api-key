@@ -2,7 +2,7 @@
 
 A local-first secret manager for macOS — desktop app **and** CLI — that replaces plaintext API keys and passwords scattered across ini files. Two interchangeable backends: an encrypted local vault, and [Infisical Cloud](https://infisical.com). Entries sync in both directions.
 
-- **ZeroApiKey** — Tauri 2 + Preact desktop app with Touch ID unlock
+- **ZeroApiKey** — Tauri 2 + Preact desktop app with optional Touch ID unlock
 - **zak** — full-featured CLI (same Rust crate, same data)
 
 ## Screenshots
@@ -54,14 +54,14 @@ Mapping: local Group → cloud Folder; local Entry → Secret inside that folder
 
 - The local vault (`~/.zero-api-key/vault.enc`) is JSON serialized, then encrypted with XChaCha20-Poly1305.
 - The 32-byte random master key is generated on first use and stored in the macOS Keychain (service `zero-api-key`, item `local_vault_key_bio`).
-- Before the master key is read, the app verifies the device owner through LocalAuthentication (Touch ID, falling back to the device passcode). The verification is cached for the lifetime of the process.
+- **Touch ID unlock is an optional switch, off by default** (Settings → Touch ID unlock). The vault is always encrypted at rest regardless; when enabled, reading the master key additionally requires device-owner verification through LocalAuthentication (Touch ID, falling back to the device passcode), cached for the lifetime of the process.
 - Plaintext only exists in memory; nothing is written to disk unencrypted.
 - Cloud credentials (Client ID / Client Secret) are stored in the Keychain, never in the config file.
 
 Honest limitations:
 
 - The app is **self-signed** (local certificate `ZeroApiKey Local Dev`), not notarized. A stable signature keeps the Keychain from re-prompting on every launch, but Gatekeeper will still warn on first open of a downloaded build — right-click → Open. For personal builds this is expected; there is no Apple Developer identity behind this project.
-- The Touch ID gate is a pre-access check at the application layer (LAContext), not a Keychain ACL binding. It raises the bar against casual access, but a determined attacker with control of the logged-in session should be considered out of scope. Keychain ACL binding requires a proper Developer ID signature with entitlements, which is why this approach was chosen.
+- Even when enabled, the Touch ID gate is a pre-access check at the application layer (LAContext), not a Keychain ACL binding. It raises the bar against casual access, but a determined attacker with control of the logged-in session should be considered out of scope. Keychain ACL binding requires a proper Developer ID signature with entitlements, which is why this approach was chosen.
 
 ## Install
 

@@ -25,6 +25,11 @@ export async function setDefaultMode(mode: Backend): Promise<void> {
   return invoke<void>("set_default_mode", { mode });
 }
 
+export async function setTouchIdEnabled(enabled: boolean): Promise<void> {
+  assertDesktopRuntime();
+  return invoke<void>("set_touch_id_enabled", { enabled });
+}
+
 export async function listGroups(mode: Backend): Promise<string[]> {
   assertDesktopRuntime();
   return invoke<string[]>("list_groups", { mode });

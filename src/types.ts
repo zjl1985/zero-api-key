@@ -4,6 +4,7 @@ export interface StatusInfo {
   defaultMode: Backend | null;
   localReady: boolean;
   cloudReady: boolean;
+  touchIdEnabled: boolean;
 }
 
 export interface EntryView {
