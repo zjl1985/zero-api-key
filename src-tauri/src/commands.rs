@@ -46,6 +46,10 @@ pub fn run(command: Command, local: bool, cloud: bool) -> Result<()> {
             let store = resolve_store(local, cloud)?;
             import(store.as_ref(), &file)
         }
+        Command::ImportJson { file } => {
+            let store = resolve_store(local, cloud)?;
+            import_json(store.as_ref(), &file)
+        }
     }
 }
 
@@ -361,6 +365,29 @@ fn import(store: &dyn Store, file: &Path) -> Result<()> {
         throttle(store);
     }
     println!("完成，上传 {uploaded} 条");
+    Ok(())
+}
+
+fn import_json(store: &dyn Store, file: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(file)
+        .with_context(|| format!("无法读取 {}", file.display()))?;
+    let items = importer::parse_json(&text)?;
+    println!("解析到 {} 条，写入后端 {}", items.len(), store.name());
+    let (mut ok, mut failed) = (0u32, 0u32);
+    for (group, entry) in items {
+        match store.upsert(&group, &entry) {
+            Ok(()) => ok += 1,
+            Err(e) => {
+                failed += 1;
+                eprintln!("写入失败 {group}/{}: {e:#}", entry.key);
+            }
+        }
+        throttle(store);
+    }
+    println!("完成：成功 {ok}，失败 {failed}");
+    if failed > 0 {
+        bail!("{failed} 条写入失败");
+    }
     Ok(())
 }
 

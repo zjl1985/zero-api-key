@@ -1,7 +1,45 @@
+use anyhow::{Context, Result, bail};
+use serde::Deserialize;
+
 use crate::models::normalize_key;
-use crate::store::EntryType;
+use crate::store::{Entry, EntryType};
 
 const API_KEY_PREFIXES: &[&str] = &["sk-", "xai-", "sk-or-", "tvly-", "ghp_", "gho_", "ak-"];
+
+#[derive(Debug, Deserialize)]
+struct JsonEntry {
+    group: String,
+    key: String,
+    #[serde(rename = "type")]
+    entry_type: String,
+    value: String,
+    env_name: Option<String>,
+    comment: Option<String>,
+}
+
+pub fn parse_json(text: &str) -> Result<Vec<(String, Entry)>> {
+    let raw: Vec<JsonEntry> = serde_json::from_str(text).context("JSON 格式错误")?;
+    raw.into_iter()
+        .enumerate()
+        .map(|(i, r)| {
+            let at = format!("第 {} 条", i + 1);
+            let group = r.group.trim();
+            if group.is_empty() {
+                bail!("{at}：group 为空");
+            }
+            let key = normalize_key(&r.key).with_context(|| format!("{at}：key 无效"))?;
+            let kind = EntryType::from_label(&r.entry_type)
+                .with_context(|| format!("{at}：type 必须是 api-key / login / note"))?;
+            if r.value.is_empty() {
+                bail!("{at}：value 为空");
+            }
+            let mut entry = Entry::new(&key, &r.value, kind);
+            entry.env_name = r.env_name.filter(|s| !s.trim().is_empty());
+            entry.comment = r.comment;
+            Ok((group.to_string(), entry))
+        })
+        .collect()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedEntry {
@@ -267,5 +305,41 @@ mod tests {
         let entries = parse(text);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].value, "sk-real-value-123456");
+    }
+
+    #[test]
+    fn json_parse_valid_entries() {
+        let text = r#"[
+            {"group":"openai","key":"api_key","type":"api-key","value":"sk-1","env_name":"OPENAI_API_KEY","comment":"主号"},
+            {"group":"github","key":"password","type":"login","value":"hunter2"}
+        ]"#;
+        let items = parse_json(text).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].0, "openai");
+        assert_eq!(items[0].1.key, "API_KEY");
+        assert_eq!(items[0].1.entry_type, EntryType::ApiKey);
+        assert_eq!(items[0].1.env_name.as_deref(), Some("OPENAI_API_KEY"));
+        assert_eq!(items[0].1.comment.as_deref(), Some("主号"));
+        assert_eq!(items[1].1.env_name, None);
+        assert_eq!(items[1].1.comment, None);
+    }
+
+    #[test]
+    fn json_parse_rejects_missing_fields() {
+        assert!(parse_json(r#"[{"group":"g","key":"K","type":"note"}]"#).is_err());
+        assert!(parse_json(r#"[{"key":"K","type":"note","value":"v"}]"#).is_err());
+        assert!(parse_json(r#"not json"#).is_err());
+    }
+
+    #[test]
+    fn json_parse_rejects_bad_type_and_empty_fields() {
+        let bad_type = parse_json(r#"[{"group":"g","key":"K","type":"secret","value":"v"}]"#);
+        assert!(bad_type.unwrap_err().to_string().contains("type"));
+        let empty_group = parse_json(r#"[{"group":" ","key":"K","type":"note","value":"v"}]"#);
+        assert!(empty_group.unwrap_err().to_string().contains("group"));
+        let empty_value = parse_json(r#"[{"group":"g","key":"K","type":"note","value":""}]"#);
+        assert!(empty_value.unwrap_err().to_string().contains("value"));
+        let bad_key = parse_json(r#"[{"group":"g","key":"邮箱","type":"note","value":"v"}]"#);
+        assert!(bad_key.unwrap_err().to_string().contains("key"));
     }
 }

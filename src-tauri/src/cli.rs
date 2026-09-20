@@ -44,6 +44,8 @@ pub enum Command {
     Export { group: String },
     /// 容错解析旧 ini 文件，逐条确认后写入当前后端
     Import { file: PathBuf },
+    /// 非交互导入 JSON 数组文件（{"group","key","type","value",...}）
+    ImportJson { file: PathBuf },
     /// 在 local 与 cloud 之间同步
     Sync {
         /// 目标后端：cloud 或 local；缺省交互选择
