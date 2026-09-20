@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result, anyhow, bail};
 use base64::engine::general_purpose::STANDARD as B64;
@@ -14,7 +15,10 @@ use crate::config::Config;
 use crate::store::{Entry, Store};
 
 const MASTER_KEY_ENTRY: &str = "local_vault_key";
+const BIO_KEY_ENTRY: &str = "local_vault_key_bio";
 const NONCE_LEN: usize = 24;
+
+static MASTER_KEY: OnceLock<Result<[u8; 32], String>> = OnceLock::new();
 
 #[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Vault {
@@ -115,29 +119,56 @@ impl Store for LocalStore {
 }
 
 pub fn is_configured() -> bool {
-    KeyringEntry::new(KEYRING_SERVICE, MASTER_KEY_ENTRY)
-        .and_then(|e| e.get_password())
-        .is_ok()
+    keyring_entry(BIO_KEY_ENTRY)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .is_some()
+        || keyring_entry(MASTER_KEY_ENTRY)
+            .ok()
+            .and_then(|e| e.get_password().ok())
+            .is_some()
 }
 
 pub fn master_key() -> Result<[u8; 32]> {
-    let entry =
-        KeyringEntry::new(KEYRING_SERVICE, MASTER_KEY_ENTRY).context("无法访问系统钥匙串")?;
-    match entry.get_password() {
-        Ok(encoded) => {
-            let bytes = B64
-                .decode(encoded.trim())
-                .context("钥匙串中的 local_vault_key 不是合法 base64")?;
-            <[u8; 32]>::try_from(bytes.as_slice())
-                .map_err(|_| anyhow!("local_vault_key 应为 32 字节，实际 {}", bytes.len()))
-        }
-        Err(keyring::Error::NoEntry) => {
-            let key: [u8; 32] = rand::random();
-            entry.set_password(&B64.encode(key))?;
-            Ok(key)
-        }
-        Err(e) => Err(e.into()),
+    MASTER_KEY
+        .get_or_init(|| load_master_key().map_err(|e| format!("{e:#}")))
+        .as_ref()
+        .map_err(|e| anyhow!(e.clone()))
+        .copied()
+}
+
+fn keyring_entry(name: &str) -> Result<KeyringEntry> {
+    KeyringEntry::new(KEYRING_SERVICE, name).context("无法访问系统钥匙串")
+}
+
+fn load_master_key() -> Result<[u8; 32]> {
+    crate::touch_id::authenticate("解锁 zero-api-key 本地保险库")?;
+    let entry = keyring_entry(BIO_KEY_ENTRY)?;
+    if let Ok(encoded) = entry.get_password() {
+        let bytes = B64
+            .decode(encoded.trim())
+            .context("钥匙串中的 local_vault_key_bio 不是合法 base64")?;
+        return bytes_to_key(&bytes);
     }
+    let legacy = keyring_entry(MASTER_KEY_ENTRY)?;
+    if let Ok(encoded) = legacy.get_password() {
+        let bytes = B64
+            .decode(encoded.trim())
+            .context("钥匙串中的 local_vault_key 不是合法 base64")?;
+        let key = bytes_to_key(&bytes)?;
+        entry
+            .set_password(&B64.encode(key))
+            .context("主密钥迁移到生物识别条目失败")?;
+        let _ = legacy.delete_credential();
+        return Ok(key);
+    }
+    let key: [u8; 32] = rand::random();
+    entry.set_password(&B64.encode(key))?;
+    Ok(key)
+}
+
+fn bytes_to_key(bytes: &[u8]) -> Result<[u8; 32]> {
+    <[u8; 32]>::try_from(bytes).map_err(|_| anyhow!("主密钥应为 32 字节，实际 {}", bytes.len()))
 }
 
 pub fn encrypt_vault(key: &[u8; 32], vault: &Vault) -> Result<Vec<u8>> {

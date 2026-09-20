@@ -37,7 +37,8 @@ Group（分组，如 openai / deepseek / cursor）
 ## 本地保险库
 
 - 文件 `~/.zero-api-key/vault.enc`，JSON 序列化后 XChaCha20-Poly1305 加密
-- 32 字节随机主密钥存 macOS 钥匙串（service `zero-api-key`，条目 `local_vault_key`），首次使用自动生成
+- 32 字节随机主密钥存 macOS 钥匙串（service `zero-api-key`，条目 `local_vault_key_bio`），首次使用自动生成
+- 读取主密钥前经 LocalAuthentication 验证机主身份（Touch ID / 设备密码），进程内缓存一次验证
 - 内存中解密即用；不落盘明文
 
 ## 云端（Infisical）

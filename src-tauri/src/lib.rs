@@ -7,6 +7,7 @@ pub mod importer;
 pub mod local_store;
 pub mod models;
 pub mod store;
+pub mod touch_id;
 
 use std::collections::BTreeMap;
 use std::thread::sleep;
