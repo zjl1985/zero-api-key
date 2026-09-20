@@ -1,82 +1,119 @@
-# zero-api-key
+# ZeroApiKey
 
-个人密钥管理工具（Rust），**双后端**：本地加密保险库 + Infisical Cloud，两边可以互相同步。替代散落在 ini 文件里的明文密码和 API key。
+A local-first secret manager for macOS — desktop app **and** CLI — that replaces plaintext API keys and passwords scattered across ini files. Two interchangeable backends: an encrypted local vault, and [Infisical Cloud](https://infisical.com). Entries sync in both directions.
 
-- `zak`：CLI（`src-tauri` 下的 bin target）
-- `ZeroApiKey`：Tauri 2 + Preact 桌面应用（`pnpm tauri dev` / `pnpm tauri build`），功能与 CLI 等价
+- **ZeroApiKey** — Tauri 2 + Preact desktop app with Touch ID unlock
+- **zak** — full-featured CLI (same Rust crate, same data)
 
-## 架构
+## Screenshots
+
+| Main window | Add entry | Settings |
+| --- | --- | --- |
+| ![Main window](docs/screenshots/main.png) | ![Add entry dialog](docs/screenshots/add-entry.png) | ![Settings](docs/screenshots/settings.png) |
+
+## Features
+
+- Groups (e.g. `openai`, `kimi`) containing typed entries: `api-key`, `login`, `note`
+- Values are masked by default; reveal for 5 seconds or copy straight to the clipboard
+- Optional environment-variable name per entry; one-click export as `export ENV=...` shell statements
+- Tolerant ini import with per-entry preview and selection
+- Bidirectional sync between the local vault and Infisical Cloud
+- English / Chinese UI (Settings → Language), persisted locally
+- Desktop app and CLI operate on the same vault and config
+
+## Architecture
 
 ```
-zak (Rust CLI)
+zak (CLI) / ZeroApiKey (Tauri desktop)
   │
   ├── Store trait ─────────────────────────────┐
   │                                             │
   ├── LocalStore                      CloudStore
   │  ~/.zero-api-key/vault.enc         │  HTTPS REST API
   │  XChaCha20-Poly1305                ▼
-  │  主密钥在 macOS 钥匙串        Infisical Cloud
-  │                                  Project → Environment → Folder(分组) → Secret(条目)
+  │  master key in macOS Keychain   Infisical Cloud
+  │  gated by Touch ID              Project → Environment → Folder (group) → Secret (entry)
   │
-  └── sync：local ⇄ cloud 双向同步，冲突交互处理
+  └── sync: local ⇄ cloud, per-conflict interactive resolution
 ```
 
-## 统一数据模型（两个后端共用）
+Unified data model shared by both backends:
 
 ```
-Group（分组，如 openai / deepseek / cursor）
+Group (e.g. openai / deepseek / cursor)
 └── Entry
-      key        UPPER_SNAKE（API_KEY / USERNAME / PASSWORD / BASE_URL / NOTE / 自定义）
-      value      密文存储
-      type       api-key | login | note     （cloud 端存 secretMetadata）
-      env_name?  对应的环境变量名             （cloud 端存 secretMetadata）
+      key        UPPER_SNAKE (API_KEY / USERNAME / PASSWORD / BASE_URL / NOTE / custom)
+      value      stored encrypted
+      type       api-key | login | note     (cloud: secretMetadata)
+      env_name?  linked environment variable (cloud: secretMetadata)
 ```
 
-映射关系：本地 Group → Cloud Folder；本地 Entry → Cloud Folder 下的 Secret。
+Mapping: local Group → cloud Folder; local Entry → Secret inside that folder.
 
-## 本地保险库
+## Security model
 
-- 文件 `~/.zero-api-key/vault.enc`，JSON 序列化后 XChaCha20-Poly1305 加密
-- 32 字节随机主密钥存 macOS 钥匙串（service `zero-api-key`，条目 `local_vault_key_bio`），首次使用自动生成
-- 读取主密钥前经 LocalAuthentication 验证机主身份（Touch ID / 设备密码），进程内缓存一次验证
-- 内存中解密即用；不落盘明文
+- The local vault (`~/.zero-api-key/vault.enc`) is JSON serialized, then encrypted with XChaCha20-Poly1305.
+- The 32-byte random master key is generated on first use and stored in the macOS Keychain (service `zero-api-key`, item `local_vault_key_bio`).
+- Before the master key is read, the app verifies the device owner through LocalAuthentication (Touch ID, falling back to the device passcode). The verification is cached for the lifetime of the process.
+- Plaintext only exists in memory; nothing is written to disk unencrypted.
+- Cloud credentials (Client ID / Client Secret) are stored in the Keychain, never in the config file.
 
-## 云端（Infisical）
+Honest limitations:
 
-- Machine Identity + Universal Auth（client_id / client_secret 入钥匙串）
-- 创建：`POST /api/v4/secrets/{name}`，列表：`GET /api/v4/secrets`，文件夹：`POST /api/v2/folders`
-- type / env_name 走 `secretMetadata`
+- The app is **self-signed** (local certificate `ZeroApiKey Local Dev`), not notarized. A stable signature keeps the Keychain from re-prompting on every launch, but Gatekeeper will still warn on first open of a downloaded build — right-click → Open. For personal builds this is expected; there is no Apple Developer identity behind this project.
+- The Touch ID gate is a pre-access check at the application layer (LAContext), not a Keychain ACL binding. It raises the bar against casual access, but a determined attacker with control of the logged-in session should be considered out of scope. Keychain ACL binding requires a proper Developer ID signature with entitlements, which is why this approach was chosen.
 
-## 命令
+## Install
+
+Download `ZeroApiKey_<version>_aarch64.dmg` from the latest release (or the `dist/` output of a local build), drag `ZeroApiKey.app` to Applications, then right-click → Open on first launch.
+
+Build from source (requires Rust, pnpm, and the Tauri prerequisites):
+
+```sh
+pnpm install
+pnpm dist        # produces dist/ZeroApiKey.app and dist/ZeroApiKey_*_aarch64.dmg
+```
+
+The CLI is built alongside the app:
+
+```sh
+cargo build --release --manifest-path src-tauri/Cargo.toml --bin zak
+# binary: src-tauri/target/release/zak
+```
+
+## CLI usage
 
 ```
-zak init                          # 交互选择配置 local / cloud / 两者
-zak add <group> [--local|--cloud] # 交互式添加（api-key / login / note）
+zak init                              # interactive setup: local / cloud / both
+zak add <group> [--local|--cloud]     # interactive add (api-key / login / note)
 zak get <group> [--key N] [--reveal] [--local|--cloud]
 zak list [group] [--local|--cloud]
 zak rm <group> [--key N] [--local|--cloud]
-zak export <group> [--local|--cloud]   # 输出 export ENV=...，可 eval
-zak import <ini 文件> [--local|--cloud] # 容错解析，逐条确认后写入当前后端
-zak sync [--to cloud|--to local]       # 缺省交互选方向
+zak export <group> [--local|--cloud]  # prints export ENV=..., safe to eval
+zak import <file.ini> [--local|--cloud]  # tolerant parse, confirm per entry
+zak sync [--to cloud|--to local]      # interactive direction if omitted
 ```
 
-- `--local` / `--cloud` 覆盖默认后端；未指定时用 config.toml 的 `default_mode`
-- `zak sync` 冲突策略：同名条目值不同 → 展示掩码对比，选 保留源/保留目标/跳过；`--force` 直接用源覆盖目标
+- `--local` / `--cloud` override the default backend; otherwise `default_mode` from `config.toml` is used.
+- `zak sync` conflict policy: same key with different values → masked diff, choose keep source / keep target / skip; `--force` overwrites the target with the source.
 
-## 技术栈
+## Cloud setup (one-time)
 
-- `tauri` 2 — 桌面壳（`src-tauri`，`zero_api_key_lib` 同时承载 CLI 与 Tauri commands）
-- `preact` + `vite` + `pnpm` — 前端（`src/`，结构照搬 codex_clear）
-- `clap`（derive）— CLI
-- `reqwest`（blocking + rustls）— Cloud API
-- `chacha20poly1305` + `rand` + `base64` — 本地保险库加密
-- `keyring` — 钥匙串存云凭证 + 本地主密钥
-- `serde` / `serde_json` / `toml` — 模型与配置
-- `anyhow`、`dirs`、`dialoguer`
-- 分层错误处理与模块划分参考 codex_clear
+1. In the Infisical web UI, create a project named `zero-api-key`.
+2. Project → Access Control → Machine Identities: create an identity, enable **Universal Auth**, note the Client ID / Client Secret, and grant it write access to the project.
+3. Run `zak init` (or Settings in the desktop app) and enter the credentials.
 
-## 前置条件（云端模式一次性配置）
+## Tech stack
 
-1. Infisical 网页端建 Project `zero-api-key`
-2. Project → Access Control → Machine Identities 建身份，启用 **Universal Auth**，拿到 Client ID / Client Secret，给项目内写权限
-3. `zak init` 时录入
+- `tauri` 2 — desktop shell (`src-tauri`; the `zero_api_key_lib` crate backs both the CLI and the Tauri commands)
+- `preact` + `vite` + `pnpm` — frontend (`src/`)
+- `clap` (derive) — CLI
+- `reqwest` (blocking + rustls) — Infisical API
+- `chacha20poly1305` + `rand` + `base64` — vault encryption
+- `keyring` — Keychain storage for cloud credentials and the vault master key
+- `serde` / `serde_json` / `toml` — models and config
+- `anyhow`, `dirs`, `dialoguer`
+
+## License
+
+[MIT](LICENSE) © zjl1985
