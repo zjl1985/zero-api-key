@@ -28,7 +28,7 @@
     "active": true,
     "targets": "all",
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "ZeroApiKey Local Dev"
     },
     "icon": [
       "icons/32x32.png",
