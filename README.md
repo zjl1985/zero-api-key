@@ -86,7 +86,7 @@ cargo build --release --manifest-path src-tauri/Cargo.toml --bin zak
 ```
 zak init                              # interactive setup: local / cloud / both
 zak add <group> [--local|--cloud]     # interactive add (api-key / login / note)
-zak get <group> [--key N] [--reveal] [--local|--cloud]
+zak get <group|KEY> [--key N] [--reveal] [--raw] [--local|--cloud]
 zak list [group] [--local|--cloud]
 zak rm <group> [--key N] [--local|--cloud]
 zak export <group> [--local|--cloud]  # prints export ENV=..., safe to eval
@@ -95,6 +95,7 @@ zak sync [--to cloud|--to local]      # interactive direction if omitted
 ```
 
 - `--local` / `--cloud` override the default backend; otherwise `default_mode` from `config.toml` is used.
+- `zak get` resolves its argument as a group first; if no such group exists, it searches **all groups** for a matching key or env var name. A unique match prints as `group / KEY = value`; ambiguous matches (e.g. `PASSWORD` in several groups) fail with the locations — disambiguate with `zak get <group> --key <KEY>`. `--raw` (with `--reveal`) prints just the value for `$(zak get KEY --reveal --raw)` scripting.
 - `zak sync` conflict policy: same key with different values → masked diff, choose keep source / keep target / skip; `--force` overwrites the target with the source.
 
 ## Cloud setup (one-time)

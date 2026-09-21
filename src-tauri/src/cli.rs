@@ -21,7 +21,7 @@ pub enum Command {
     Init,
     /// 交互式向分组添加条目（api-key / login / note）
     Add { group: String },
-    /// 查看分组条目，默认掩码显示
+    /// 查看分组条目；参数不是分组名时，作为键名/环境变量名在全部分组中查找，默认掩码显示
     Get {
         group: String,
         /// 只看指定键
@@ -30,8 +30,8 @@ pub enum Command {
         /// 明文显示
         #[arg(long)]
         reveal: bool,
-        /// 只输出值本身（需配合 --key 和 --reveal），便于 $(zak get ...) 脚本取值
-        #[arg(long, requires = "key", requires = "reveal")]
+        /// 只输出值本身（需配合 --reveal；分组内需 --key，全局查找需唯一匹配），便于 $(zak get ...) 脚本取值
+        #[arg(long, requires = "reveal")]
         raw: bool,
     },
     /// 列出全部分组，或指定分组内的条目

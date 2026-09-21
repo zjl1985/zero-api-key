@@ -213,6 +213,16 @@ fn add(store: &dyn Store, group: &str) -> Result<()> {
 }
 
 fn get(store: &dyn Store, group: &str, key: Option<&str>, reveal: bool, raw: bool) -> Result<()> {
+    let groups = store.list_groups()?;
+    if !should_treat_as_group(&groups, group) {
+        if key.is_some() {
+            bail!("分组 {group} 不存在（后端 {}）", store.name());
+        }
+        return get_global(store, group, reveal, raw);
+    }
+    if raw && key.is_none() {
+        bail!("--raw 需要配合 --key 指定单个键");
+    }
     let filter = match key {
         Some(k) => Some(normalize_key(k).context("键名无效（需要包含字母或数字）")?),
         None => None,
@@ -244,6 +254,68 @@ fn get(store: &dyn Store, group: &str, key: Option<&str>, reveal: bool, raw: boo
         }
     }
     Ok(())
+}
+
+fn should_treat_as_group(groups: &[String], arg: &str) -> bool {
+    groups.iter().any(|g| g == arg)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum GlobalMatch {
+    None,
+    Unique(String, Entry),
+    Ambiguous(Vec<String>),
+}
+
+fn match_global_key(all: &[(String, Vec<Entry>)], query: &str) -> GlobalMatch {
+    let mut unique: Option<(String, Entry)> = None;
+    let mut hit_groups: Vec<String> = Vec::new();
+    for (group, entries) in all {
+        let hit = entries.iter().find(|e| {
+            e.key == query
+                || e.env_name.as_deref().and_then(normalize_key).as_deref() == Some(query)
+        });
+        if let Some(entry) = hit {
+            hit_groups.push(group.clone());
+            if unique.is_none() {
+                unique = Some((group.clone(), entry.clone()));
+            }
+        }
+    }
+    match hit_groups.len() {
+        0 => GlobalMatch::None,
+        1 => {
+            let (group, entry) = unique.unwrap();
+            GlobalMatch::Unique(group, entry)
+        }
+        _ => GlobalMatch::Ambiguous(hit_groups),
+    }
+}
+
+fn get_global(store: &dyn Store, query_raw: &str, reveal: bool, raw: bool) -> Result<()> {
+    let query = normalize_key(query_raw).context("键名无效（需要包含字母或数字）")?;
+    let mut all = Vec::new();
+    for group in store.list_groups()? {
+        all.push((group.clone(), store.list_entries(&group)?));
+    }
+    match match_global_key(&all, &query) {
+        GlobalMatch::Unique(group, entry) => {
+            if raw {
+                println!("{}", entry.value);
+            } else {
+                let shown = if reveal { entry.value.clone() } else { mask(&entry.value) };
+                println!("{group} / {} = {}", entry.key, shown);
+            }
+            Ok(())
+        }
+        GlobalMatch::Ambiguous(groups) => bail!(
+            "键 {query} 在多个分组中均存在：{}，请用 zak get <group> --key {query} 消歧",
+            groups.join(", ")
+        ),
+        GlobalMatch::None => {
+            bail!("未找到键 {query}（全部分组均无匹配，后端 {}）", store.name())
+        }
+    }
 }
 
 fn list(store: &dyn Store, group: Option<&str>) -> Result<()> {
@@ -483,4 +555,85 @@ fn sync(to: Option<&str>, force: bool) -> Result<()> {
     }
     println!("同步完成：新增 {added}，更新 {updated}，跳过 {skipped}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(key: &str, env_name: Option<&str>) -> Entry {
+        let mut e = Entry::new(key, "v", EntryType::ApiKey);
+        e.env_name = env_name.map(|s| s.to_string());
+        e
+    }
+
+    fn dataset() -> Vec<(String, Vec<Entry>)> {
+        vec![
+            ("openai".to_string(), vec![entry("API_KEY", Some("OPENAI_API_KEY"))]),
+            ("tavily".to_string(), vec![entry("API_KEY", Some("TAVILY_API_KEY"))]),
+            (
+                "server".to_string(),
+                vec![entry("PASSWORD", None), entry("USERNAME", None)],
+            ),
+            ("backup".to_string(), vec![entry("PASSWORD", None)]),
+        ]
+    }
+
+    #[test]
+    fn global_match_unique_by_key() {
+        let all = dataset();
+        match match_global_key(&all, "USERNAME") {
+            GlobalMatch::Unique(group, e) => {
+                assert_eq!(group, "server");
+                assert_eq!(e.key, "USERNAME");
+            }
+            other => panic!("期望唯一匹配，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn global_match_by_env_name() {
+        let all = dataset();
+        match match_global_key(&all, "TAVILY_API_KEY") {
+            GlobalMatch::Unique(group, e) => {
+                assert_eq!(group, "tavily");
+                assert_eq!(e.key, "API_KEY");
+            }
+            other => panic!("期望唯一匹配，实际 {other:?}"),
+        }
+        // env_name 未规范化存储时也应命中
+        let mut sloppy = dataset();
+        sloppy[1].1[0].env_name = Some("tavily-api-key".to_string());
+        assert!(matches!(
+            match_global_key(&sloppy, "TAVILY_API_KEY"),
+            GlobalMatch::Unique(..)
+        ));
+    }
+
+    #[test]
+    fn global_match_ambiguous_lists_groups() {
+        let all = dataset();
+        match match_global_key(&all, "PASSWORD") {
+            GlobalMatch::Ambiguous(groups) => {
+                assert_eq!(groups, vec!["server".to_string(), "backup".to_string()]);
+            }
+            other => panic!("期望多重匹配，实际 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn global_match_none() {
+        let all = dataset();
+        assert_eq!(match_global_key(&all, "NOPE"), GlobalMatch::None);
+    }
+
+    #[test]
+    fn group_name_takes_priority_over_key() {
+        let all = dataset();
+        let groups: Vec<String> = all.iter().map(|(g, _)| g.clone()).collect();
+        // "server" 既是分组名，也是键 USERNAME/PASSWORD 所在组——命中分组时不做全局查找
+        assert!(should_treat_as_group(&groups, "server"));
+        assert!(!should_treat_as_group(&groups, "TAVILY_API_KEY"));
+        assert!(!should_treat_as_group(&groups, "nonexistent"));
+    }
 }
