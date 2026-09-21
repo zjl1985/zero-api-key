@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::fs::OpenOptions;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -33,17 +35,8 @@ pub struct LocalStore {
 
 impl LocalStore {
     pub fn new() -> Result<Self> {
-        let dir = Config::path()?
-            .parent()
-            .map(|p| p.to_path_buf())
-            .context("无法定位配置目录")?;
-        let vault_file = if cfg!(debug_assertions) {
-            "vault-dev.enc"
-        } else {
-            "vault.enc"
-        };
         Ok(Self {
-            path: dir.join(vault_file),
+            path: vault_path()?,
             key: master_key()?,
         })
     }
@@ -123,15 +116,34 @@ impl Store for LocalStore {
     }
 }
 
+fn data_dir() -> Result<PathBuf> {
+    Config::path()?
+        .parent()
+        .map(|p| p.to_path_buf())
+        .context("无法定位配置目录")
+}
+
+fn vault_path() -> Result<PathBuf> {
+    let name = if cfg!(debug_assertions) {
+        "vault-dev.enc"
+    } else {
+        "vault.enc"
+    };
+    Ok(data_dir()?.join(name))
+}
+
+fn master_key_path() -> Result<PathBuf> {
+    let name = if cfg!(debug_assertions) {
+        "master-dev.key"
+    } else {
+        "master.key"
+    };
+    Ok(data_dir()?.join(name))
+}
+
 pub fn is_configured() -> bool {
-    keyring_entry(BIO_KEY_ENTRY)
-        .ok()
-        .and_then(|e| e.get_password().ok())
-        .is_some()
-        || keyring_entry(MASTER_KEY_ENTRY)
-            .ok()
-            .and_then(|e| e.get_password().ok())
-            .is_some()
+    master_key_path().map(|p| p.exists()).unwrap_or(false)
+        || vault_path().map(|p| p.exists()).unwrap_or(false)
 }
 
 pub fn master_key() -> Result<[u8; 32]> {
@@ -147,31 +159,77 @@ fn keyring_entry(name: &str) -> Result<KeyringEntry> {
 }
 
 fn load_master_key() -> Result<[u8; 32]> {
-    if Config::load().map(|c| c.touch_id_enabled).unwrap_or(false) {
-        crate::touch_id::authenticate("解锁 zero-api-key 本地保险库")?;
+    let path = master_key_path()?;
+    if let Some(key) = read_key_file(&path)? {
+        return Ok(key);
     }
-    let entry = keyring_entry(BIO_KEY_ENTRY)?;
-    if let Ok(encoded) = entry.get_password() {
-        let bytes = B64
-            .decode(encoded.trim())
-            .context("钥匙串中的 local_vault_key_bio 不是合法 base64")?;
-        return bytes_to_key(&bytes);
-    }
-    let legacy = keyring_entry(MASTER_KEY_ENTRY)?;
-    if let Ok(encoded) = legacy.get_password() {
-        let bytes = B64
-            .decode(encoded.trim())
-            .context("钥匙串中的 local_vault_key 不是合法 base64")?;
-        let key = bytes_to_key(&bytes)?;
-        entry
-            .set_password(&B64.encode(key))
-            .context("主密钥迁移到生物识别条目失败")?;
-        let _ = legacy.delete_credential();
+    // 一次性迁移：钥匙串里的旧主密钥写入 0600 文件后删除钥匙串条目，
+    // 这次读取可能弹最后一次钥匙串授权窗
+    if let Some(key) = legacy_keychain_key() {
+        write_key_file(&path, &key)?;
+        clear_legacy_keychain_key();
         return Ok(key);
     }
     let key: [u8; 32] = rand::random();
-    entry.set_password(&B64.encode(key))?;
+    write_key_file(&path, &key)?;
     Ok(key)
+}
+
+fn read_key_file(path: &Path) -> Result<Option<[u8; 32]>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(path)
+        .with_context(|| format!("无法读取主密钥文件 {}", path.display()))?;
+    let bytes = B64
+        .decode(text.trim())
+        .with_context(|| format!("主密钥文件 {} 不是合法 base64", path.display()))?;
+    bytes_to_key(&bytes).map(Some)
+}
+
+fn write_key_file(path: &Path, key: &[u8; 32]) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut file = opts
+        .open(path)
+        .with_context(|| format!("无法写入主密钥文件 {}", path.display()))?;
+    file.write_all(B64.encode(key).as_bytes())?;
+    file.write_all(b"\n")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
+fn legacy_keychain_key() -> Option<[u8; 32]> {
+    for name in [BIO_KEY_ENTRY, MASTER_KEY_ENTRY] {
+        if let Ok(entry) = keyring_entry(name)
+            && let Ok(encoded) = entry.get_password()
+            && let Ok(bytes) = B64.decode(encoded.trim())
+            && let Ok(key) = bytes_to_key(&bytes)
+        {
+            return Some(key);
+        }
+    }
+    None
+}
+
+fn clear_legacy_keychain_key() {
+    for name in [BIO_KEY_ENTRY, MASTER_KEY_ENTRY] {
+        if let Ok(entry) = keyring_entry(name) {
+            let _ = entry.delete_credential();
+        }
+    }
 }
 
 fn bytes_to_key(bytes: &[u8]) -> Result<[u8; 32]> {
@@ -221,6 +279,56 @@ mod tests {
             ],
         );
         Vault { groups }
+    }
+
+    #[test]
+    fn key_file_roundtrip_and_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("master.key");
+        let key = test_key();
+        write_key_file(&path, &key).unwrap();
+        assert_eq!(read_key_file(&path).unwrap(), Some(key));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn key_file_missing_and_corrupt() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("master.key");
+        assert_eq!(read_key_file(&path).unwrap(), None);
+        std::fs::write(&path, "not-base64!!!").unwrap();
+        assert!(read_key_file(&path).is_err());
+        std::fs::write(&path, B64.encode([1u8; 8])).unwrap();
+        assert!(read_key_file(&path).is_err());
+    }
+
+    #[test]
+    fn key_file_rewrite_keeps_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("master.key");
+        write_key_file(&path, &test_key()).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        write_key_file(&path, &[9u8; 32]).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        assert_eq!(read_key_file(&path).unwrap(), Some([9u8; 32]));
     }
 
     #[test]

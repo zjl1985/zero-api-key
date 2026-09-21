@@ -68,6 +68,7 @@ export default function App() {
     setLocaleState(next);
   };
   const [status, setStatus] = useState<StatusInfo | null>(null);
+  const [unlocked, setUnlocked] = useState(false);
   const [mode, setMode] = useState<Backend | null>(null);
   const [groups, setGroups] = useState<string[]>([]);
   const [group, setGroup] = useState<string | null>(null);
@@ -250,6 +251,19 @@ export default function App() {
       setError(errText(e));
     }
   };
+
+  if (status?.uiPasswordEnabled && !unlocked) {
+    return (
+      <LockScreen
+        t={t}
+        touchIdEnabled={status.touchIdEnabled}
+        onUnlock={() => {
+          setError(null);
+          setUnlocked(true);
+        }}
+      />
+    );
+  }
 
   return (
     <div class="app">
@@ -497,6 +511,79 @@ export default function App() {
         />
       )}
       {toast && <div class="toast">{toast}</div>}
+    </div>
+  );
+}
+
+function LockScreen(props: {
+  t: Strings;
+  touchIdEnabled: boolean;
+  onUnlock: () => void;
+}) {
+  const { t } = props;
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!password || busy) return;
+    setBusy(true);
+    try {
+      const ok = await api.verifyUiPassword(password);
+      if (ok) {
+        props.onUnlock();
+      } else {
+        setError(t.wrongPassword);
+        setPassword("");
+      }
+    } catch (e) {
+      setError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unlockTouchId = async () => {
+    try {
+      await api.unlockTouchId();
+      props.onUnlock();
+    } catch {
+      // 用户取消或指纹不可用：停留在锁屏
+    }
+  };
+
+  return (
+    <div class="lock-screen">
+      <div class="lock-card">
+        <LockIcon size={32} />
+        <h2>{t.lockedTitle}</h2>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <input
+            type="password"
+            autoFocus
+            placeholder={t.unlockPasswordLabel}
+            value={password}
+            onInput={(e) => {
+              setPassword((e.target as HTMLInputElement).value);
+              setError(null);
+            }}
+          />
+          {error && <p class="lock-error">{error}</p>}
+          <button class="btn primary" type="submit" disabled={busy || !password}>
+            {t.unlock}
+          </button>
+        </form>
+        {props.touchIdEnabled && (
+          <button class="btn" onClick={unlockTouchId}>
+            {t.unlockWithTouchId}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -866,6 +953,10 @@ function SettingsDialog(props: {
   const [touchIdEnabled, setTouchIdEnabled] = useState(
     props.status?.touchIdEnabled ?? false,
   );
+  const [hasPassword, setHasPassword] = useState(props.status?.uiPasswordEnabled ?? false);
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
 
   const toggleTouchId = async (enabled: boolean) => {
     setTouchIdEnabled(enabled);
@@ -874,6 +965,40 @@ function SettingsDialog(props: {
     } catch (e) {
       setTouchIdEnabled(!enabled);
       props.onError(errText(e));
+    }
+  };
+
+  const savePassword = async () => {
+    if (newPw !== confirmPw) {
+      props.onError(t.passwordMismatch);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.setUiPassword(hasPassword ? currentPw : null, newPw);
+      props.onToast(t.passwordUpdatedToast);
+      setHasPassword(true);
+      setCurrentPw("");
+      setNewPw("");
+      setConfirmPw("");
+    } catch (e) {
+      props.onError(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const clearPassword = async () => {
+    setBusy(true);
+    try {
+      await api.setUiPassword(currentPw, null);
+      props.onToast(t.passwordClearedToast);
+      setHasPassword(false);
+      setCurrentPw("");
+    } catch (e) {
+      props.onError(errText(e));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -956,6 +1081,55 @@ function SettingsDialog(props: {
           {t.touchIdRequire}
         </label>
         <p class="dim">{t.touchIdNote}</p>
+      </section>
+
+      <section class="settings-section">
+        <h3>{t.unlockPasswordSection}</h3>
+        {hasPassword && (
+          <label class="field">
+            <span>{t.currentPassword}</span>
+            <input
+              type="password"
+              value={currentPw}
+              onInput={(e) => setCurrentPw((e.target as HTMLInputElement).value)}
+            />
+          </label>
+        )}
+        <label class="field">
+          <span>{t.newPassword}</span>
+          <input
+            type="password"
+            value={newPw}
+            onInput={(e) => setNewPw((e.target as HTMLInputElement).value)}
+          />
+        </label>
+        <label class="field">
+          <span>{t.confirmPassword}</span>
+          <input
+            type="password"
+            value={confirmPw}
+            onInput={(e) => setConfirmPw((e.target as HTMLInputElement).value)}
+          />
+        </label>
+        <div class="dialog-actions">
+          <button
+            class="btn primary"
+            disabled={busy || !newPw || (hasPassword && !currentPw)}
+            onClick={savePassword}
+          >
+            {t.save}
+          </button>
+          {hasPassword && (
+            <button
+              class="btn danger"
+              disabled={busy || !currentPw}
+              onClick={clearPassword}
+            >
+              {t.clearPassword}
+            </button>
+          )}
+        </div>
+        <p class="dim">{t.passwordNote}</p>
       </section>
 
       <section class="settings-section">

@@ -8,8 +8,10 @@ pub mod local_store;
 pub mod models;
 pub mod store;
 pub mod touch_id;
+pub mod ui_password;
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -30,6 +32,18 @@ pub struct StatusInfo {
     pub local_ready: bool,
     pub cloud_ready: bool,
     pub touch_id_enabled: bool,
+    pub ui_password_enabled: bool,
+}
+
+struct AppState {
+    locked: AtomicBool,
+}
+
+fn ensure_unlocked(state: &AppState) -> Result<(), String> {
+    if state.locked.load(Ordering::SeqCst) {
+        return Err("界面已锁定，请先输入解锁密码".to_string());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
@@ -146,7 +160,11 @@ fn status() -> Result<StatusInfo> {
             .map(|b| b.label().to_string()),
         local_ready: local_store::is_configured(),
         cloud_ready,
-        touch_id_enabled: config.map(|c| c.touch_id_enabled).unwrap_or(false),
+        touch_id_enabled: config.as_ref().map(|c| c.touch_id_enabled).unwrap_or(false),
+        ui_password_enabled: config
+            .as_ref()
+            .map(|c| c.ui_password_hash.is_some())
+            .unwrap_or(false),
     })
 }
 
@@ -160,6 +178,18 @@ fn set_default(mode: &str) -> Result<()> {
 fn set_touch_id(enabled: bool) -> Result<()> {
     let mut config = Config::load().unwrap_or_else(|_| Config::empty());
     config.touch_id_enabled = enabled;
+    config.save()
+}
+
+fn update_ui_password(current: Option<&str>, new: Option<&str>) -> Result<()> {
+    let mut config = Config::load().unwrap_or_else(|_| Config::empty());
+    if let Some(hash) = &config.ui_password_hash {
+        let current = current.context("需要输入当前解锁密码")?;
+        if !ui_password::verify_password(hash, current) {
+            bail!("当前解锁密码不正确");
+        }
+    }
+    config.ui_password_hash = new.map(ui_password::hash_password);
     config.save()
 }
 
@@ -314,7 +344,8 @@ async fn get_status() -> Result<StatusInfo, String> {
 }
 
 #[tauri::command]
-async fn set_default_mode(mode: String) -> Result<(), String> {
+async fn set_default_mode(state: tauri::State<'_, AppState>, mode: String) -> Result<(), String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || set_default(&mode))
         .await
         .map_err(|e| e.to_string())?
@@ -322,7 +353,11 @@ async fn set_default_mode(mode: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn set_touch_id_enabled(enabled: bool) -> Result<(), String> {
+async fn set_touch_id_enabled(
+    state: tauri::State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || set_touch_id(enabled))
         .await
         .map_err(|e| e.to_string())?
@@ -330,7 +365,57 @@ async fn set_touch_id_enabled(enabled: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn list_groups(mode: String) -> Result<Vec<String>, String> {
+async fn verify_ui_password(
+    state: tauri::State<'_, AppState>,
+    password: String,
+) -> Result<bool, String> {
+    let ok = tauri::async_runtime::spawn_blocking(move || {
+        let hash = Config::load().ok().and_then(|c| c.ui_password_hash);
+        Ok::<bool, anyhow::Error>(match hash {
+            Some(h) => ui_password::verify_password(&h, &password),
+            None => true,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: anyhow::Error| e.to_string())?;
+    if ok {
+        state.locked.store(false, Ordering::SeqCst);
+    }
+    Ok(ok)
+}
+
+#[tauri::command]
+async fn unlock_touch_id(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(|| crate::touch_id::authenticate("解锁 ZeroApiKey"))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e: anyhow::Error| e.to_string())?;
+    state.locked.store(false, Ordering::SeqCst);
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_ui_password(
+    state: tauri::State<'_, AppState>,
+    current: Option<String>,
+    new: Option<String>,
+) -> Result<(), String> {
+    ensure_unlocked(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        update_ui_password(current.as_deref(), new.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: anyhow::Error| e.to_string())
+}
+
+#[tauri::command]
+async fn list_groups(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+) -> Result<Vec<String>, String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || open_store(&mode)?.list_groups())
         .await
         .map_err(|e| e.to_string())?
@@ -338,7 +423,12 @@ async fn list_groups(mode: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn list_entries(mode: String, group: String) -> Result<Vec<EntryView>, String> {
+async fn list_entries(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    group: String,
+) -> Result<Vec<EntryView>, String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
         Ok(open_store(&mode)?
             .list_entries(&group)?
@@ -352,7 +442,13 @@ async fn list_entries(mode: String, group: String) -> Result<Vec<EntryView>, Str
 }
 
 #[tauri::command]
-async fn reveal_entry(mode: String, group: String, key: String) -> Result<String, String> {
+async fn reveal_entry(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    group: String,
+    key: String,
+) -> Result<String, String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || reveal(&mode, &group, &key))
         .await
         .map_err(|e| e.to_string())?
@@ -360,7 +456,13 @@ async fn reveal_entry(mode: String, group: String, key: String) -> Result<String
 }
 
 #[tauri::command]
-async fn add_entry(mode: String, group: String, entry: EntryInput) -> Result<(), String> {
+async fn add_entry(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    group: String,
+    entry: EntryInput,
+) -> Result<(), String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || add(&mode, &group, entry))
         .await
         .map_err(|e| e.to_string())?
@@ -368,7 +470,13 @@ async fn add_entry(mode: String, group: String, entry: EntryInput) -> Result<(),
 }
 
 #[tauri::command]
-async fn remove_entry(mode: String, group: String, key: String) -> Result<(), String> {
+async fn remove_entry(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    group: String,
+    key: String,
+) -> Result<(), String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
         let key = models::normalize_key(&key).context("键名无效")?;
         open_store(&mode)?.remove(&group, Some(&key))
@@ -379,7 +487,12 @@ async fn remove_entry(mode: String, group: String, key: String) -> Result<(), St
 }
 
 #[tauri::command]
-async fn remove_group(mode: String, group: String) -> Result<(), String> {
+async fn remove_group(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    group: String,
+) -> Result<(), String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || open_store(&mode)?.remove(&group, None))
         .await
         .map_err(|e| e.to_string())?
@@ -387,7 +500,12 @@ async fn remove_group(mode: String, group: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn export_group(mode: String, group: String) -> Result<String, String> {
+async fn export_group(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    group: String,
+) -> Result<String, String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || export(&mode, &group))
         .await
         .map_err(|e| e.to_string())?
@@ -395,7 +513,12 @@ async fn export_group(mode: String, group: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-async fn sync(direction: String, force: Option<bool>) -> Result<SyncStats, String> {
+async fn sync(
+    state: tauri::State<'_, AppState>,
+    direction: String,
+    force: Option<bool>,
+) -> Result<SyncStats, String> {
+    ensure_unlocked(&state)?;
     let _ = force;
     tauri::async_runtime::spawn_blocking(move || do_sync(&direction))
         .await
@@ -404,7 +527,12 @@ async fn sync(direction: String, force: Option<bool>) -> Result<SyncStats, Strin
 }
 
 #[tauri::command]
-async fn import_ini(mode: String, path: String) -> Result<Vec<ImportPreviewItem>, String> {
+async fn import_ini(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    path: String,
+) -> Result<Vec<ImportPreviewItem>, String> {
+    ensure_unlocked(&state)?;
     let _ = mode;
     tauri::async_runtime::spawn_blocking(move || import_parse(&path))
         .await
@@ -413,7 +541,12 @@ async fn import_ini(mode: String, path: String) -> Result<Vec<ImportPreviewItem>
 }
 
 #[tauri::command]
-async fn import_commit(mode: String, entries: Vec<CommitEntry>) -> Result<u32, String> {
+async fn import_commit(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    entries: Vec<CommitEntry>,
+) -> Result<u32, String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || import_write(&mode, entries))
         .await
         .map_err(|e| e.to_string())?
@@ -422,12 +555,14 @@ async fn import_commit(mode: String, entries: Vec<CommitEntry>) -> Result<u32, S
 
 #[tauri::command]
 async fn init_cloud(
+    state: tauri::State<'_, AppState>,
     api_base: String,
     project_id: String,
     environment: String,
     client_id: String,
     client_secret: String,
 ) -> Result<(), String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || {
         cloud_init(&api_base, &project_id, &environment, &client_id, &client_secret)
     })
@@ -437,7 +572,12 @@ async fn init_cloud(
 }
 
 #[tauri::command]
-async fn new_group(mode: String, group: String) -> Result<(), String> {
+async fn new_group(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    group: String,
+) -> Result<(), String> {
+    ensure_unlocked(&state)?;
     tauri::async_runtime::spawn_blocking(move || create_group(&mode, &group))
         .await
         .map_err(|e| e.to_string())?
@@ -446,11 +586,20 @@ async fn new_group(mode: String, group: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let locked = Config::load()
+        .map(|c| c.ui_password_hash.is_some())
+        .unwrap_or(false);
     tauri::Builder::default()
+        .manage(AppState {
+            locked: AtomicBool::new(locked),
+        })
         .invoke_handler(tauri::generate_handler![
             get_status,
             set_default_mode,
             set_touch_id_enabled,
+            verify_ui_password,
+            unlock_touch_id,
+            set_ui_password,
             list_groups,
             list_entries,
             reveal_entry,

@@ -31,6 +31,8 @@ pub struct Config {
     pub default_mode: Option<Backend>,
     #[serde(default)]
     pub touch_id_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_password_hash: Option<String>,
 }
 
 fn default_environment() -> String {
@@ -45,6 +47,7 @@ impl Config {
             environment: default_environment(),
             default_mode: None,
             touch_id_enabled: false,
+            ui_password_hash: None,
         }
     }
 

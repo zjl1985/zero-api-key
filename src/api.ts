@@ -30,6 +30,24 @@ export async function setTouchIdEnabled(enabled: boolean): Promise<void> {
   return invoke<void>("set_touch_id_enabled", { enabled });
 }
 
+export async function verifyUiPassword(password: string): Promise<boolean> {
+  assertDesktopRuntime();
+  return invoke<boolean>("verify_ui_password", { password });
+}
+
+export async function unlockTouchId(): Promise<void> {
+  assertDesktopRuntime();
+  return invoke<void>("unlock_touch_id");
+}
+
+export async function setUiPassword(
+  current: string | null,
+  newPassword: string | null,
+): Promise<void> {
+  assertDesktopRuntime();
+  return invoke<void>("set_ui_password", { current, new: newPassword });
+}
+
 export async function listGroups(mode: Backend): Promise<string[]> {
   assertDesktopRuntime();
   return invoke<string[]>("list_groups", { mode });

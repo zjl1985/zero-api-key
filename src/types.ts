@@ -5,6 +5,7 @@ export interface StatusInfo {
   localReady: boolean;
   cloudReady: boolean;
   touchIdEnabled: boolean;
+  uiPasswordEnabled: boolean;
 }
 
 export interface EntryView {

@@ -66,6 +66,20 @@ export interface Strings {
   touchIdUnlock: string;
   touchIdRequire: string;
   touchIdNote: string;
+  lockedTitle: string;
+  unlockPasswordLabel: string;
+  unlock: string;
+  wrongPassword: string;
+  unlockWithTouchId: string;
+  unlockPasswordSection: string;
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+  passwordMismatch: string;
+  passwordUpdatedToast: string;
+  passwordClearedToast: string;
+  clearPassword: string;
+  passwordNote: string;
   cloudInfisical: string;
   configured: string;
   notConfigured: string;
@@ -157,6 +171,21 @@ const en: Strings = {
   touchIdRequire: "Require Touch ID before reading the vault",
   touchIdNote:
     "The vault is always encrypted at rest. Touch ID only adds an unlock prompt on top; it is off by default.",
+  lockedTitle: "ZeroApiKey is locked",
+  unlockPasswordLabel: "Unlock password",
+  unlock: "Unlock",
+  wrongPassword: "Wrong password",
+  unlockWithTouchId: "Unlock with Touch ID",
+  unlockPasswordSection: "Unlock password",
+  currentPassword: "Current password",
+  newPassword: "New password",
+  confirmPassword: "Confirm new password",
+  passwordMismatch: "Passwords do not match",
+  passwordUpdatedToast: "Unlock password updated",
+  passwordClearedToast: "Unlock password cleared",
+  clearPassword: "Clear password",
+  passwordNote:
+    "When set, the desktop app asks for this password on launch. The CLI never asks for anything.",
   cloudInfisical: "Cloud (Infisical)",
   configured: "Configured",
   notConfigured: "Not configured",
@@ -247,6 +276,20 @@ const zh: Strings = {
   touchIdUnlock: "指纹解锁",
   touchIdRequire: "读取保险库前需要指纹验证",
   touchIdNote: "保险库始终以密文存储，指纹只是额外的解锁验证，默认关闭。",
+  lockedTitle: "ZeroApiKey 已锁定",
+  unlockPasswordLabel: "解锁密码",
+  unlock: "解锁",
+  wrongPassword: "密码错误",
+  unlockWithTouchId: "使用指纹解锁",
+  unlockPasswordSection: "解锁密码",
+  currentPassword: "当前密码",
+  newPassword: "新密码",
+  confirmPassword: "确认新密码",
+  passwordMismatch: "两次输入不一致",
+  passwordUpdatedToast: "解锁密码已更新",
+  passwordClearedToast: "解锁密码已清除",
+  clearPassword: "清除密码",
+  passwordNote: "设置后桌面应用启动时需要输入密码；CLI 始终不需要任何密码。",
   cloudInfisical: "云端（Infisical）",
   configured: "已配置",
   notConfigured: "未配置",

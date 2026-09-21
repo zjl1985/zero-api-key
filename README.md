@@ -19,7 +19,10 @@ A local-first secret manager for macOS — desktop app **and** CLI — that repl
 - Tolerant ini import with per-entry preview and selection
 - Bidirectional sync between the local vault and Infisical Cloud
 - English / Chinese UI (Settings → Language), persisted locally
+- Edit entries in place (pencil icon reuses the Add dialog)
+- `zak get <KEY>` searches all groups by key or env var name — no group needed
 - Desktop app and CLI operate on the same vault and config
+- Optional GUI unlock password and Touch ID at launch; the CLI never prompts
 
 ## Architecture
 
@@ -31,8 +34,8 @@ zak (CLI) / ZeroApiKey (Tauri desktop)
   ├── LocalStore                      CloudStore
   │  ~/.zero-api-key/vault.enc         │  HTTPS REST API
   │  XChaCha20-Poly1305                ▼
-  │  master key in macOS Keychain   Infisical Cloud
-  │  gated by Touch ID              Project → Environment → Folder (group) → Secret (entry)
+  │  master.key (0600, SSH model)   Infisical Cloud
+  │  no prompts for the CLI         Project → Environment → Folder (group) → Secret (entry)
   │
   └── sync: local ⇄ cloud, per-conflict interactive resolution
 ```
@@ -53,12 +56,15 @@ Mapping: local Group → cloud Folder; local Entry → Secret inside that folder
 ## Security model
 
 - The local vault (`~/.zero-api-key/vault.enc`) is JSON serialized, then encrypted with XChaCha20-Poly1305.
-- The 32-byte random master key is generated on first use and stored in the macOS Keychain (service `zero-api-key`, item `local_vault_key_bio`).
-- **Touch ID unlock is an optional switch, off by default** (Settings → Touch ID unlock). The vault is always encrypted at rest regardless; when enabled, reading the master key additionally requires device-owner verification through LocalAuthentication (Touch ID, falling back to the device passcode), cached for the lifetime of the process.
+- The 32-byte random master key is generated on first use and stored in `~/.zero-api-key/master.key` with `0600` permissions — the same filesystem-permission model as SSH private keys. Upgrading from an older build migrates the Keychain-stored key to this file once and removes it from the Keychain (that single migration read may show one final Keychain authorization prompt).
+- **The CLI never prompts**: no password, no Touch ID, no Keychain authorization.
+- The desktop app can require an **unlock password** at launch (Settings → Unlock password; PBKDF2-SHA256, off by default). While locked, no group or entry data is rendered, and every backend command except password verification is refused. If Touch ID unlock is also enabled (off by default), the lock screen offers a fingerprint button via LAContext device-owner verification.
 - Plaintext only exists in memory; nothing is written to disk unencrypted.
 - Cloud credentials (Client ID / Client Secret) are stored in the Keychain, never in the config file.
 
 Honest limitations:
+
+- The master key file is protected by filesystem permissions only: any process running as your user can read it — the same tradeoff as `~/.ssh/id_rsa`. The GUI unlock password gates the app's interface, not the file.
 
 - The app is **self-signed** (local certificate `ZeroApiKey Local Dev`), not notarized. A stable signature keeps the Keychain from re-prompting on every launch, but Gatekeeper will still warn on first open of a downloaded build — right-click → Open. For personal builds this is expected; there is no Apple Developer identity behind this project.
 - Even when enabled, the Touch ID gate is a pre-access check at the application layer (LAContext), not a Keychain ACL binding. It raises the bar against casual access, but a determined attacker with control of the logged-in session should be considered out of scope. Keychain ACL binding requires a proper Developer ID signature with entitlements, which is why this approach was chosen.
@@ -111,7 +117,8 @@ zak sync [--to cloud|--to local]      # interactive direction if omitted
 - `clap` (derive) — CLI
 - `reqwest` (blocking + rustls) — Infisical API
 - `chacha20poly1305` + `rand` + `base64` — vault encryption
-- `keyring` — Keychain storage for cloud credentials and the vault master key
+- `keyring` — Keychain storage for cloud credentials
+- `pbkdf2` + `sha2` — GUI unlock password hashing
 - `serde` / `serde_json` / `toml` — models and config
 - `anyhow`, `dirs`, `dialoguer`
 
