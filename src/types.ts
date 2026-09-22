@@ -16,6 +16,10 @@ export interface EntryView {
   comment: string | null;
 }
 
+export interface SearchHit extends EntryView {
+  group: string;
+}
+
 export interface EntryInput {
   key: string;
   value: string;

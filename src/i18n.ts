@@ -6,6 +6,10 @@ export interface Strings {
   settings: string;
   groups: string;
   newGroup: string;
+  searchPlaceholder: string;
+  searchResults: (count: number) => string;
+  noSearchResults: string;
+  colGroup: string;
   noGroups: string;
   noGroupsHint: string;
   noGroupSelected: string;
@@ -109,6 +113,10 @@ const en: Strings = {
   settings: "Settings",
   groups: "Groups",
   newGroup: "New group",
+  searchPlaceholder: "Search keys / env vars…",
+  searchResults: (count) => `${count} result${count === 1 ? "" : "s"}`,
+  noSearchResults: "No matching entries",
+  colGroup: "Group",
   noGroups: "No groups yet",
   noGroupsHint: "Click + above to create one",
   noGroupSelected: "No group selected",
@@ -217,6 +225,10 @@ const zh: Strings = {
   settings: "设置",
   groups: "分组",
   newGroup: "新建分组",
+  searchPlaceholder: "搜索键名 / 环境变量…",
+  searchResults: (count) => `${count} 条结果`,
+  noSearchResults: "没有匹配的条目",
+  colGroup: "分组",
   noGroups: "还没有分组",
   noGroupsHint: "点上方 + 新建",
   noGroupSelected: "未选择分组",

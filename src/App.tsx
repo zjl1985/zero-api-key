@@ -4,6 +4,7 @@ import type {
   Backend,
   EntryView,
   ImportPreviewItem,
+  SearchHit,
   StatusInfo,
   SyncStats,
 } from "./types";
@@ -89,6 +90,8 @@ export default function App() {
   const [groups, setGroups] = useState<string[]>([]);
   const [group, setGroup] = useState<string | null>(null);
   const [entries, setEntries] = useState<EntryView[]>([]);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchHit[] | null>(null);
   const [revealed, setRevealed] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +103,7 @@ export default function App() {
     resolve: (ok: boolean) => void;
   } | null>(null);
   const [editTarget, setEditTarget] = useState<{
+    group: string;
     key: string;
     value: string;
     entryType: string;
@@ -171,6 +175,26 @@ export default function App() {
     else setEntries([]);
   }, [mode, group, reloadEntries]);
 
+  const runSearch = useCallback(async (m: Backend, q: string) => {
+    try {
+      setResults(await api.searchEntries(m, q));
+      setError(null);
+    } catch (e) {
+      setError(errText(e));
+    }
+  }, []);
+
+  // 输入防抖：有查询词时跨分组全局搜索，清空则回到分组视图
+  useEffect(() => {
+    const q = query.trim();
+    if (!mode || !q) {
+      setResults(null);
+      return;
+    }
+    const timer = window.setTimeout(() => runSearch(mode, q), 250);
+    return () => window.clearTimeout(timer);
+  }, [mode, query, runSearch]);
+
   const ready = (b: Backend) => (b === "local" ? status?.localReady : status?.cloudReady);
 
   const switchMode = (m: Backend) => {
@@ -178,24 +202,25 @@ export default function App() {
     setMode(m);
   };
 
-  const reveal = async (key: string) => {
-    if (!mode || !group) return;
-    if (revealed[key]) {
-      window.clearTimeout(revealTimers.current[key]);
+  const reveal = async (g: string, key: string) => {
+    if (!mode) return;
+    const id = `${g}/${key}`;
+    if (revealed[id]) {
+      window.clearTimeout(revealTimers.current[id]);
       setRevealed((r) => {
         const next = { ...r };
-        delete next[key];
+        delete next[id];
         return next;
       });
       return;
     }
     try {
-      const value = await api.revealEntry(mode, group, key);
-      setRevealed((r) => ({ ...r, [key]: value }));
-      revealTimers.current[key] = window.setTimeout(() => {
+      const value = await api.revealEntry(mode, g, key);
+      setRevealed((r) => ({ ...r, [id]: value }));
+      revealTimers.current[id] = window.setTimeout(() => {
         setRevealed((r) => {
           const next = { ...r };
-          delete next[key];
+          delete next[id];
           return next;
         });
       }, REVEAL_MS);
@@ -204,10 +229,10 @@ export default function App() {
     }
   };
 
-  const copyEntry = async (key: string) => {
-    if (!mode || !group) return;
+  const copyEntry = async (g: string, key: string) => {
+    if (!mode) return;
     try {
-      const value = revealed[key] ?? (await api.revealEntry(mode, group, key));
+      const value = revealed[`${g}/${key}`] ?? (await api.revealEntry(mode, g, key));
       await copyText(value);
       showToast(t.copiedToast(key));
     } catch (e) {
@@ -215,11 +240,12 @@ export default function App() {
     }
   };
 
-  const openEdit = async (entry: EntryView) => {
-    if (!mode || !group) return;
+  const openEdit = async (g: string, entry: EntryView) => {
+    if (!mode) return;
     try {
-      const value = await api.revealEntry(mode, group, entry.key);
+      const value = await api.revealEntry(mode, g, entry.key);
       setEditTarget({
+        group: g,
         key: entry.key,
         value,
         entryType: entry.entryType,
@@ -231,13 +257,16 @@ export default function App() {
     }
   };
 
-  const removeEntry = async (key: string) => {
-    if (!mode || !group) return;
-    if (!(await askConfirm(t.deleteEntryConfirm(group, key)))) return;
+  const removeEntry = async (g: string, key: string) => {
+    if (!mode) return;
+    if (!(await askConfirm(t.deleteEntryConfirm(g, key)))) return;
     try {
-      await api.removeEntry(mode, group, key);
-      await reloadEntries(mode, group);
-      if (!(await api.listEntries(mode, group)).length) reloadGroups(mode);
+      await api.removeEntry(mode, g, key);
+      if (g === group) {
+        await reloadEntries(mode, g);
+        if (!(await api.listEntries(mode, g)).length) reloadGroups(mode);
+      }
+      if (results !== null && query.trim()) runSearch(mode, query.trim());
       showToast(t.deletedEntryToast(key));
     } catch (e) {
       setError(errText(e));
@@ -313,6 +342,14 @@ export default function App() {
 
       <div class="body">
         <aside class="sidebar">
+          <div class="sidebar-search">
+            <input
+              type="search"
+              placeholder={t.searchPlaceholder}
+              value={query}
+              onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
+            />
+          </div>
           <div class="sidebar-head">
             <span>{t.groups}</span>
             <button class="icon-btn" title={t.newGroup} onClick={() => setDialog("newGroup")}>
@@ -337,7 +374,63 @@ export default function App() {
         </aside>
 
         <main class="main">
-          {group === null ? (
+          {results !== null ? (
+            <>
+              <div class="toolbar">
+                <nav class="breadcrumb">
+                  <span class="dim">{mode ? backendLabel(t, mode) : ""}</span>
+                  <span class="crumb-sep">/</span>
+                  <span>{t.searchResults(results.length)}</span>
+                </nav>
+              </div>
+              {results.length === 0 ? (
+                <div class="empty-state">
+                  <LockIcon size={40} />
+                  <p class="empty-title">{t.noSearchResults}</p>
+                </div>
+              ) : (
+                <table class="entries">
+                  <thead>
+                    <tr>
+                      <th>{t.colGroup}</th>
+                      <th>{t.colType}</th>
+                      <th>{t.colKey}</th>
+                      <th>{t.colValue}</th>
+                      <th>{t.colEnv}</th>
+                      <th class="actions-col">{t.colActions}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {results.map((hit) => (
+                      <EntryRow
+                        key={`${hit.group}/${hit.key}`}
+                        t={t}
+                        entry={hit}
+                        groupCell={
+                          <td>
+                            <button
+                              class="group-link"
+                              onClick={() => {
+                                setQuery("");
+                                setGroup(hit.group);
+                              }}
+                            >
+                              {hit.group}
+                            </button>
+                          </td>
+                        }
+                        revealedValue={revealed[`${hit.group}/${hit.key}`]}
+                        onReveal={() => reveal(hit.group, hit.key)}
+                        onEdit={() => openEdit(hit.group, hit)}
+                        onCopy={() => copyEntry(hit.group, hit.key)}
+                        onDelete={() => removeEntry(hit.group, hit.key)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </>
+          ) : group === null ? (
             <div class="empty-state">
               <FolderIcon size={40} />
               <p class="empty-title">{t.noGroupSelected}</p>
@@ -393,52 +486,16 @@ export default function App() {
                   </thead>
                   <tbody>
                     {entries.map((entry) => (
-                      <tr key={entry.key}>
-                        <td>
-                          <span class={`badge badge-${entry.entryType}`}>
-                            {typeLabel(t, entry.entryType)}
-                          </span>
-                        </td>
-                        <td class="mono">{entry.key}</td>
-                        <td class="value-cell">
-                          {revealed[entry.key] ? (
-                            <span class="mono revealed">{revealed[entry.key]}</span>
-                          ) : (
-                            <span class="dots">••••••••••</span>
-                          )}
-                        </td>
-                        <td class="mono dim">{entry.envName ?? "—"}</td>
-                        <td class="actions-cell">
-                          <button
-                            class="icon-btn"
-                            title={revealed[entry.key] ? t.maskAgain : t.revealFor5s}
-                            onClick={() => reveal(entry.key)}
-                          >
-                            {revealed[entry.key] ? <EyeOffIcon /> : <EyeIcon />}
-                          </button>
-                          <button
-                            class="icon-btn"
-                            title={t.edit}
-                            onClick={() => openEdit(entry)}
-                          >
-                            <EditIcon />
-                          </button>
-                          <button
-                            class="icon-btn"
-                            title={t.copyPlaintext}
-                            onClick={() => copyEntry(entry.key)}
-                          >
-                            <CopyIcon />
-                          </button>
-                          <button
-                            class="icon-btn danger"
-                            title={t.delete}
-                            onClick={() => removeEntry(entry.key)}
-                          >
-                            <TrashIcon />
-                          </button>
-                        </td>
-                      </tr>
+                      <EntryRow
+                        key={entry.key}
+                        t={t}
+                        entry={entry}
+                        revealedValue={revealed[`${group}/${entry.key}`]}
+                        onReveal={() => reveal(group, entry.key)}
+                        onEdit={() => openEdit(group, entry)}
+                        onCopy={() => copyEntry(group, entry.key)}
+                        onDelete={() => removeEntry(group, entry.key)}
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -448,17 +505,19 @@ export default function App() {
         </main>
       </div>
 
-      {dialog === "add" && mode && group && (
+      {dialog === "add" && mode && (group ?? editTarget?.group) && (
         <AddEntryDialog
           t={t}
           busy={busy}
           initial={editTarget}
           onClose={() => setDialog(null)}
           onSubmit={async (input) => {
+            const g = editTarget?.group ?? group;
+            if (!mode || !g) return;
             setBusy(true);
             try {
               if (editTarget) {
-                await api.renameEntry(mode, group, editTarget.key, input);
+                await api.renameEntry(mode, g, editTarget.key, input);
                 const newKey = normalizeKey(input.key);
                 showToast(
                   newKey && newKey !== editTarget.key
@@ -466,11 +525,12 @@ export default function App() {
                     : t.savedToast(editTarget.key),
                 );
               } else {
-                await api.addEntry(mode, group, input);
+                await api.addEntry(mode, g, input);
                 showToast(t.savedToast(input.key));
               }
               setDialog(null);
-              await reloadEntries(mode, group);
+              if (g === group) await reloadEntries(mode, g);
+              if (results !== null && query.trim()) await runSearch(mode, query.trim());
             } catch (e) {
               setError(errText(e));
             } finally {
@@ -611,6 +671,56 @@ function LockScreen(props: {
         )}
       </div>
     </div>
+  );
+}
+
+function EntryRow(props: {
+  t: Strings;
+  entry: EntryView;
+  groupCell?: preact.ComponentChildren;
+  revealedValue: string | undefined;
+  onReveal: () => void;
+  onEdit: () => void;
+  onCopy: () => void;
+  onDelete: () => void;
+}) {
+  const { t, entry } = props;
+  return (
+    <tr>
+      {props.groupCell}
+      <td>
+        <span class={`badge badge-${entry.entryType}`}>
+          {typeLabel(t, entry.entryType)}
+        </span>
+      </td>
+      <td class="mono">{entry.key}</td>
+      <td class="value-cell">
+        {props.revealedValue ? (
+          <span class="mono revealed">{props.revealedValue}</span>
+        ) : (
+          <span class="dots">••••••••••</span>
+        )}
+      </td>
+      <td class="mono dim">{entry.envName ?? "—"}</td>
+      <td class="actions-cell">
+        <button
+          class="icon-btn"
+          title={props.revealedValue ? t.maskAgain : t.revealFor5s}
+          onClick={props.onReveal}
+        >
+          {props.revealedValue ? <EyeOffIcon /> : <EyeIcon />}
+        </button>
+        <button class="icon-btn" title={t.edit} onClick={props.onEdit}>
+          <EditIcon />
+        </button>
+        <button class="icon-btn" title={t.copyPlaintext} onClick={props.onCopy}>
+          <CopyIcon />
+        </button>
+        <button class="icon-btn danger" title={t.delete} onClick={props.onDelete}>
+          <TrashIcon />
+        </button>
+      </td>
+    </tr>
   );
 }
 

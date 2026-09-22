@@ -196,6 +196,37 @@ button {
   letter-spacing: 0.04em;
 }
 
+.sidebar-search {
+  padding: 0 0 8px;
+}
+
+.sidebar-search input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.sidebar-search input:focus {
+  border-color: var(--accent);
+}
+
+.group-link {
+  color: var(--accent);
+  font-size: 13px;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.group-link:hover {
+  text-decoration: underline;
+}
+
 .sidebar-empty {
   padding: 24px 8px;
   text-align: center;

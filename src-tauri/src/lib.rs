@@ -56,6 +56,17 @@ pub struct EntryView {
     pub comment: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub group: String,
+    pub key: String,
+    pub masked_value: String,
+    pub entry_type: String,
+    pub env_name: Option<String>,
+    pub comment: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EntryInput {
@@ -144,6 +155,40 @@ fn snapshot(store: &dyn Store) -> Result<BTreeMap<String, Vec<Entry>>> {
         map.insert(group.clone(), store.list_entries(&group)?);
     }
     Ok(map)
+}
+
+// 跨分组全局搜索：键名 / 环境变量名 / 备注的不区分大小写子串匹配
+fn search(mode: &str, query: &str) -> Result<Vec<SearchHit>> {
+    let store = open_store(mode)?;
+    let q = query.trim().to_lowercase();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut hits = Vec::new();
+    for group in store.list_groups()? {
+        for entry in store.list_entries(&group)? {
+            let matches = entry.key.to_lowercase().contains(&q)
+                || entry
+                    .env_name
+                    .as_deref()
+                    .is_some_and(|e| e.to_lowercase().contains(&q))
+                || entry
+                    .comment
+                    .as_deref()
+                    .is_some_and(|c| c.to_lowercase().contains(&q));
+            if matches {
+                hits.push(SearchHit {
+                    group: group.clone(),
+                    key: entry.key.clone(),
+                    masked_value: models::mask(&entry.value),
+                    entry_type: entry.entry_type.label().to_string(),
+                    env_name: entry.env_name.clone(),
+                    comment: entry.comment.clone(),
+                });
+            }
+        }
+    }
+    Ok(hits)
 }
 
 fn status() -> Result<StatusInfo> {
@@ -448,8 +493,20 @@ async fn list_entries(
 }
 
 #[tauri::command]
-async fn reveal_entry(
+async fn search_entries(
     state: tauri::State<'_, AppState>,
+    mode: String,
+    query: String,
+) -> Result<Vec<SearchHit>, String> {
+    ensure_unlocked(&state)?;
+    tauri::async_runtime::spawn_blocking(move || search(&mode, &query))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e: anyhow::Error| e.to_string())
+}
+
+#[tauri::command]
+async fn reveal_entry(    state: tauri::State<'_, AppState>,
     mode: String,
     group: String,
     key: String,
@@ -623,6 +680,7 @@ pub fn run() {
             set_ui_password,
             list_groups,
             list_entries,
+            search_entries,
             reveal_entry,
             add_entry,
             rename_entry,

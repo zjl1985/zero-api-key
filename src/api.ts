@@ -5,6 +5,7 @@ import type {
   EntryInput,
   EntryView,
   ImportPreviewItem,
+  SearchHit,
   StatusInfo,
   SyncStats,
 } from "./types";
@@ -61,6 +62,11 @@ export async function listEntries(mode: Backend, group: string): Promise<EntryVi
 export async function revealEntry(mode: Backend, group: string, key: string): Promise<string> {
   assertDesktopRuntime();
   return invoke<string>("reveal_entry", { mode, group, key });
+}
+
+export async function searchEntries(mode: Backend, query: string): Promise<SearchHit[]> {
+  assertDesktopRuntime();
+  return invoke<SearchHit[]>("search_entries", { mode, query });
 }
 
 export async function addEntry(mode: Backend, group: string, entry: EntryInput): Promise<void> {
