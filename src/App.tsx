@@ -15,6 +15,7 @@ import {
   type Locale,
   type Strings,
 } from "./i18n";
+import { applyTheme, loadTheme, saveTheme, type Theme } from "./theme";
 import {
   CopyIcon,
   EditIcon,
@@ -84,6 +85,14 @@ export default function App() {
     saveLocale(next);
     setLocaleState(next);
   };
+  const [theme, setThemeState] = useState<Theme>(loadTheme());
+  const setTheme = (next: Theme) => {
+    saveTheme(next);
+    setThemeState(next);
+  };
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
   const [status, setStatus] = useState<StatusInfo | null>(null);
   const [unlocked, setUnlocked] = useState(false);
   const [mode, setMode] = useState<Backend | null>(null);
@@ -561,6 +570,8 @@ export default function App() {
           t={t}
           locale={locale}
           onLocaleChange={setLocale}
+          theme={theme}
+          onThemeChange={setTheme}
           status={status}
           onClose={() => {
             setDialog(null);
@@ -1073,6 +1084,8 @@ function SettingsDialog(props: {
   t: Strings;
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
+  theme: Theme;
+  onThemeChange: (theme: Theme) => void;
   status: StatusInfo | null;
   onClose: () => void;
   onError: (msg: string) => void;
@@ -1178,6 +1191,21 @@ function SettingsDialog(props: {
           >
             <option value="en">English</option>
             <option value="zh">中文</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="settings-section">
+        <h3>{t.theme}</h3>
+        <label class="field">
+          <select
+            value={props.theme}
+            onChange={(e) =>
+              props.onThemeChange((e.target as HTMLSelectElement).value as Theme)
+            }
+          >
+            <option value="default">{t.themeDefault}</option>
+            <option value="rose-pine">{t.themeRosePine}</option>
           </select>
         </label>
       </section>

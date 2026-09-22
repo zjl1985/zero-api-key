@@ -25,8 +25,9 @@
 
   --accent: #6366f1;
   --accent-hover: #818cf8;
-  --accent-soft: rgba(99, 102, 241, 0.14);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --accent-text: #a5b4fc;
+  --on-accent: #ffffff;
 
   --blue: #3b82f6;
   --purple: #a855f7;
@@ -34,7 +35,7 @@
 
   --danger: #f85149;
   --danger-hover: #ff6a61;
-  --danger-soft: rgba(248, 81, 73, 0.12);
+  --danger-soft: color-mix(in srgb, var(--danger) 12%, transparent);
   --success: #3fb950;
 
   --mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -46,6 +47,34 @@
 
   color: var(--text);
   background: var(--bg-0);
+}
+
+/* Rosé Pine（https://rosepinetheme.com/ 官方主变体）：
+   base/surface/overlay 分层背景 + iris 强调色，love 表示危险，foam 表示成功 */
+:root[data-theme="rose-pine"] {
+  --bg-0: #191724; /* base */
+  --bg-1: #1f1d2e; /* surface */
+  --bg-2: #21202e; /* highlight low */
+  --bg-hover: #26233a; /* overlay */
+  --border: #26233a; /* overlay */
+  --border-strong: #403d52; /* highlight med */
+
+  --text: #e0def4;
+  --text-secondary: #908caa; /* subtle */
+  --text-tertiary: #6e6a86; /* muted */
+
+  --accent: #c4a7e7; /* iris */
+  --accent-hover: #d3bcf0;
+  --accent-text: #c4a7e7;
+  --on-accent: #191724;
+
+  --blue: #9ccfd8; /* foam */
+  --purple: #c4a7e7; /* iris */
+  --gray: #908caa; /* subtle */
+
+  --danger: #eb6f92; /* love */
+  --danger-hover: #f28dab;
+  --success: #9ccfd8; /* foam */
 }
 
 * {
@@ -426,7 +455,7 @@ button {
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .btn.primary:hover {
@@ -565,20 +594,20 @@ button {
 
 .badge-api-key {
   color: var(--blue);
-  border-color: rgba(59, 130, 246, 0.4);
-  background: rgba(59, 130, 246, 0.1);
+  border-color: color-mix(in srgb, var(--blue) 40%, transparent);
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
 }
 
 .badge-login {
   color: var(--purple);
-  border-color: rgba(168, 85, 247, 0.4);
-  background: rgba(168, 85, 247, 0.1);
+  border-color: color-mix(in srgb, var(--purple) 40%, transparent);
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
 }
 
 .badge-note {
   color: var(--gray);
-  border-color: rgba(139, 148, 158, 0.4);
-  background: rgba(139, 148, 158, 0.1);
+  border-color: color-mix(in srgb, var(--gray) 40%, transparent);
+  background: color-mix(in srgb, var(--gray) 10%, transparent);
 }
 
 /* 对话框：居中 modal + 遮罩模糊 */

@@ -65,6 +65,9 @@ export interface Strings {
   startSync: string;
   settingsTitle: string;
   language: string;
+  theme: string;
+  themeDefault: string;
+  themeRosePine: string;
   defaultBackend: string;
   masterKeyNote: string;
   touchIdUnlock: string;
@@ -173,6 +176,9 @@ const en: Strings = {
   startSync: "Start Sync",
   settingsTitle: "Settings",
   language: "Language",
+  theme: "Theme",
+  themeDefault: "Default (GitHub Dark)",
+  themeRosePine: "Rosé Pine",
   defaultBackend: "Default backend",
   masterKeyNote:
     "The local vault master key is generated on first use and stored in the system keychain.",
@@ -285,6 +291,9 @@ const zh: Strings = {
   startSync: "开始同步",
   settingsTitle: "设置",
   language: "语言",
+  theme: "主题",
+  themeDefault: "默认（GitHub Dark）",
+  themeRosePine: "Rosé Pine",
   defaultBackend: "默认后端",
   masterKeyNote: "本地保险库主密钥在首次使用时自动生成并存入系统钥匙串。",
   touchIdUnlock: "指纹解锁",
