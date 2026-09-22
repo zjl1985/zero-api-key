@@ -43,6 +43,12 @@ pub enum Command {
         #[arg(long)]
         key: Option<String>,
     },
+    /// 重命名分组内的键（非交互，值/类型/备注保持不变）
+    Rename {
+        group: String,
+        old_key: String,
+        new_key: String,
+    },
     /// 输出 export ENV=... 行，可 eval
     Export { group: String },
     /// 容错解析旧 ini 文件，逐条确认后写入当前后端

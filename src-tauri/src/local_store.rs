@@ -114,6 +114,24 @@ impl Store for LocalStore {
         }
         self.save(&vault)
     }
+
+    fn rename(&self, group: &str, old_key: &str, entry: &Entry) -> Result<()> {
+        let mut vault = self.load()?;
+        let entries = vault
+            .groups
+            .get_mut(group)
+            .with_context(|| format!("分组 {group} 不存在"))?;
+        let pos = entries
+            .iter()
+            .position(|e| e.key == old_key)
+            .with_context(|| format!("未找到 {group}/{old_key}"))?;
+        if entry.key != old_key && entries.iter().any(|e| e.key == entry.key) {
+            bail!("{group}/{} 已存在，无法重命名为该键名", entry.key);
+        }
+        entries[pos] = entry.clone();
+        entries.sort_by(|a, b| a.key.cmp(&b.key));
+        self.save(&vault)
+    }
 }
 
 fn data_dir() -> Result<PathBuf> {
@@ -392,5 +410,76 @@ mod tests {
         reopened.upsert("a", &Entry::new("K", "v", EntryType::Note)).unwrap();
         reopened.remove("a", None).unwrap();
         assert!(reopened.list_groups().unwrap().is_empty());
+    }
+
+    #[test]
+    fn rename_updates_key_and_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = LocalStore::with_key(dir.path().join("vault.enc"), test_key());
+        store
+            .upsert("g", &Entry::new("OLD", "v1", EntryType::ApiKey))
+            .unwrap();
+        store
+            .upsert("g", &Entry::new("OTHER", "v2", EntryType::Note))
+            .unwrap();
+
+        store
+            .rename("g", "OLD", &Entry::new("NEW", "v3", EntryType::Login))
+            .unwrap();
+        let entries = store.list_entries("g").unwrap();
+        assert_eq!(entries.len(), 2);
+        let renamed = entries.iter().find(|e| e.key == "NEW").unwrap();
+        assert_eq!(renamed.value, "v3");
+        assert_eq!(renamed.entry_type, EntryType::Login);
+        assert!(entries.iter().all(|e| e.key != "OLD"));
+
+        // 新键名等于旧键名时退化为 upsert
+        store
+            .rename("g", "NEW", &Entry::new("NEW", "v4", EntryType::Login))
+            .unwrap();
+        let entries = store.list_entries("g").unwrap();
+        assert_eq!(entries.iter().find(|e| e.key == "NEW").unwrap().value, "v4");
+    }
+
+    #[test]
+    fn rename_conflicts_with_existing_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = LocalStore::with_key(dir.path().join("vault.enc"), test_key());
+        store
+            .upsert("g", &Entry::new("A", "v1", EntryType::Note))
+            .unwrap();
+        store
+            .upsert("g", &Entry::new("B", "v2", EntryType::Note))
+            .unwrap();
+
+        let err = store
+            .rename("g", "A", &Entry::new("B", "v3", EntryType::Note))
+            .unwrap_err();
+        assert!(err.to_string().contains("已存在"), "错误信息：{err:#}");
+        // 冲突时两端都不变
+        let entries = store.list_entries("g").unwrap();
+        assert_eq!(entries.iter().find(|e| e.key == "A").unwrap().value, "v1");
+        assert_eq!(entries.iter().find(|e| e.key == "B").unwrap().value, "v2");
+    }
+
+    #[test]
+    fn rename_missing_old_key_or_group_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = LocalStore::with_key(dir.path().join("vault.enc"), test_key());
+        store
+            .upsert("g", &Entry::new("A", "v1", EntryType::Note))
+            .unwrap();
+
+        assert!(
+            store
+                .rename("g", "NOPE", &Entry::new("B", "v", EntryType::Note))
+                .is_err()
+        );
+        assert!(
+            store
+                .rename("no-such-group", "A", &Entry::new("B", "v", EntryType::Note))
+                .is_err()
+        );
+        assert_eq!(store.list_entries("g").unwrap().len(), 1);
     }
 }

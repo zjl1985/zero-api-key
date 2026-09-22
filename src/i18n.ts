@@ -95,6 +95,7 @@ export interface Strings {
   deletedGroupToast: (group: string) => string;
   exportCopiedToast: string;
   savedToast: (key: string) => string;
+  renamedToast: (oldKey: string, newKey: string) => string;
   importDoneToast: (count: number) => string;
   defaultModeToast: (label: string) => string;
   cloudConfiguredToast: string;
@@ -201,6 +202,7 @@ const en: Strings = {
   deletedGroupToast: (group) => `Deleted group ${group}`,
   exportCopiedToast: "Export statements copied to clipboard",
   savedToast: (key) => `Saved ${key}`,
+  renamedToast: (oldKey, newKey) => `Renamed ${oldKey} → ${newKey}`,
   importDoneToast: (count) => `Import complete, ${count} entries written`,
   defaultModeToast: (label) => `Default backend switched to ${label}`,
   cloudConfiguredToast: "Cloud backend configured and connectivity verified",
@@ -305,6 +307,7 @@ const zh: Strings = {
   deletedGroupToast: (group) => `已删除分组 ${group}`,
   exportCopiedToast: "export 语句已复制到剪贴板",
   savedToast: (key) => `已写入 ${key}`,
+  renamedToast: (oldKey, newKey) => `已重命名 ${oldKey} → ${newKey}`,
   importDoneToast: (count) => `导入完成，写入 ${count} 条`,
   defaultModeToast: (label) => `默认后端已切换为${label}`,
   cloudConfiguredToast: "cloud 后端已配置并验证连通",

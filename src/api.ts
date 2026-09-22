@@ -68,6 +68,16 @@ export async function addEntry(mode: Backend, group: string, entry: EntryInput):
   return invoke<void>("add_entry", { mode, group, entry });
 }
 
+export async function renameEntry(
+  mode: Backend,
+  group: string,
+  oldKey: string,
+  entry: EntryInput,
+): Promise<void> {
+  assertDesktopRuntime();
+  return invoke<void>("rename_entry", { mode, group, oldKey, entry });
+}
+
 export async function removeEntry(mode: Backend, group: string, key: string): Promise<void> {
   assertDesktopRuntime();
   return invoke<void>("remove_entry", { mode, group, key });

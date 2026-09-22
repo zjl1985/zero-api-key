@@ -213,6 +213,12 @@ fn add(mode: &str, group: &str, input: EntryInput) -> Result<()> {
     open_store(mode)?.upsert(group, &entry)
 }
 
+fn rename(mode: &str, group: &str, old_key: &str, input: EntryInput) -> Result<()> {
+    let entry = build_entry(&input.key, &input.value, &input.entry_type, input.env_name)?;
+    let old_key = models::normalize_key(old_key).context("旧键名无效")?;
+    open_store(mode)?.rename(group, &old_key, &entry)
+}
+
 fn export(mode: &str, group: &str) -> Result<String> {
     let store = open_store(mode)?;
     let prefix = models::normalize_key(group).unwrap_or_else(|| "GROUP".to_string());
@@ -470,6 +476,21 @@ async fn add_entry(
 }
 
 #[tauri::command]
+async fn rename_entry(
+    state: tauri::State<'_, AppState>,
+    mode: String,
+    group: String,
+    old_key: String,
+    entry: EntryInput,
+) -> Result<(), String> {
+    ensure_unlocked(&state)?;
+    tauri::async_runtime::spawn_blocking(move || rename(&mode, &group, &old_key, entry))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e: anyhow::Error| e.to_string())
+}
+
+#[tauri::command]
 async fn remove_entry(
     state: tauri::State<'_, AppState>,
     mode: String,
@@ -604,6 +625,7 @@ pub fn run() {
             list_entries,
             reveal_entry,
             add_entry,
+            rename_entry,
             remove_entry,
             remove_group,
             export_group,

@@ -60,6 +60,9 @@ pub trait Store {
     fn list_entries(&self, group: &str) -> Result<Vec<Entry>>;
     fn upsert(&self, group: &str, entry: &Entry) -> Result<()>;
     fn remove(&self, group: &str, key: Option<&str>) -> Result<()>;
+    /// 重命名：old_key 必须存在，entry.key 为与组内其他键不冲突的新键名；
+    /// 新键名等于 old_key 时退化为 upsert
+    fn rename(&self, group: &str, old_key: &str, entry: &Entry) -> Result<()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

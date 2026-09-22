@@ -95,6 +95,7 @@ zak add <group> [--local|--cloud]     # interactive add (api-key / login / note)
 zak get <group|KEY> [--key N] [--reveal] [--raw] [--local|--cloud]
 zak list [group] [--local|--cloud]
 zak rm <group> [--key N] [--local|--cloud]
+zak rename <group> <OLD> <NEW> [--local|--cloud]  # rename a key, value/type/comment kept
 zak export <group> [--local|--cloud]  # prints export ENV=..., safe to eval
 zak import <file.ini> [--local|--cloud]  # tolerant parse, confirm per entry
 zak sync [--to cloud|--to local]      # interactive direction if omitted

@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use reqwest::Method;
 use reqwest::blocking::{Client as Http, Response};
 
@@ -301,6 +301,43 @@ impl Store for CloudStore {
                     .delete_folder(&self.project_id, &self.environment, "/", group)
             }
         }
+    }
+
+    fn rename(&self, group: &str, old_key: &str, entry: &Entry) -> Result<()> {
+        if old_key == entry.key {
+            return self.upsert(group, entry);
+        }
+        let path = format!("/{group}");
+        let secrets = self
+            .client
+            .list_secrets(&self.project_id, &self.environment, &path)?;
+        if !secrets.iter().any(|s| s.secret_key == old_key) {
+            bail!("未找到 {group}/{old_key}");
+        }
+        if secrets.iter().any(|s| s.secret_key == entry.key) {
+            bail!("{group}/{} 已存在，无法重命名为该键名", entry.key);
+        }
+        let metadata = entry_metadata(entry);
+        let input = SecretInput {
+            name: &entry.key,
+            value: &entry.value,
+            path: &path,
+            comment: entry.comment.as_deref().unwrap_or(""),
+            metadata: &metadata,
+        };
+        // 云端无法原子重命名：先建新键，再删旧键
+        self.client
+            .create_secret(&self.project_id, &self.environment, &input)?;
+        if let Err(e) = self
+            .client
+            .delete_secret(&self.project_id, &self.environment, old_key, &path)
+        {
+            bail!(
+                "新键 {group}/{} 已写入，但删除旧键 {old_key} 失败：{e:#}；新旧键当前并存，请手动删除旧键",
+                entry.key
+            );
+        }
+        Ok(())
     }
 }
 

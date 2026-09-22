@@ -36,6 +36,22 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+// 与后端 models::normalize_key 保持一致：大写字母数字，其余折叠为单个 _
+function normalizeKey(raw: string): string {
+  let out = "";
+  let prevUnderscore = true;
+  for (const c of raw) {
+    if (/[A-Za-z0-9]/.test(c)) {
+      out += c.toUpperCase();
+      prevUnderscore = false;
+    } else if (!prevUnderscore) {
+      out += "_";
+      prevUnderscore = true;
+    }
+  }
+  return out.replace(/_+$/, "");
+}
+
 async function copyText(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -441,10 +457,20 @@ export default function App() {
           onSubmit={async (input) => {
             setBusy(true);
             try {
-              await api.addEntry(mode, group, input);
+              if (editTarget) {
+                await api.renameEntry(mode, group, editTarget.key, input);
+                const newKey = normalizeKey(input.key);
+                showToast(
+                  newKey && newKey !== editTarget.key
+                    ? t.renamedToast(editTarget.key, newKey)
+                    : t.savedToast(editTarget.key),
+                );
+              } else {
+                await api.addEntry(mode, group, input);
+                showToast(t.savedToast(input.key));
+              }
               setDialog(null);
               await reloadEntries(mode, group);
-              showToast(t.savedToast(input.key));
             } catch (e) {
               setError(errText(e));
             } finally {
@@ -709,7 +735,6 @@ function AddEntryDialog(props: {
         <span>{t.keyLabel}</span>
         <input
           value={key}
-          disabled={editing}
           onInput={(e) => setKey((e.target as HTMLInputElement).value)}
         />
       </label>

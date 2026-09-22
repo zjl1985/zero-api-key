@@ -38,6 +38,14 @@ pub fn run(command: Command, local: bool, cloud: bool) -> Result<()> {
             let store = resolve_store(local, cloud)?;
             rm(store.as_ref(), &group, key.as_deref())
         }
+        Command::Rename {
+            group,
+            old_key,
+            new_key,
+        } => {
+            let store = resolve_store(local, cloud)?;
+            rename(store.as_ref(), &group, &old_key, &new_key)
+        }
         Command::Export { group } => {
             let store = resolve_store(local, cloud)?;
             export(store.as_ref(), &group)
@@ -371,6 +379,20 @@ fn rm(store: &dyn Store, group: &str, key: Option<&str>) -> Result<()> {
             println!("已删除分组 {group}");
         }
     }
+    Ok(())
+}
+
+fn rename(store: &dyn Store, group: &str, old_key: &str, new_key: &str) -> Result<()> {
+    let old = normalize_key(old_key).context("键名无效（需要包含字母或数字）")?;
+    let new = normalize_key(new_key).context("新键名无效（需要包含字母或数字）")?;
+    let mut entry = store
+        .list_entries(group)?
+        .into_iter()
+        .find(|e| e.key == old)
+        .with_context(|| format!("未找到 {group}/{old}（后端 {}）", store.name()))?;
+    entry.key = new.clone();
+    store.rename(group, &old, &entry)?;
+    println!("已重命名 {group}/{old} → {new}（后端 {}）", store.name());
     Ok(())
 }
 
