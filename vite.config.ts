@@ -8,6 +8,12 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [preact()],
 
+  // web 产物单独放 dist/web，避免 vite 清空 dist 时删掉已打好的 .app / .dmg
+  build: {
+    outDir: "dist/web",
+    emptyOutDir: true,
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
