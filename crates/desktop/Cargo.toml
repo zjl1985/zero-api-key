@@ -1,0 +1,25 @@
+[package]
+name = "zero-api-key-desktop"
+version = "0.2.0"
+edition = "2024"
+license = "MIT"
+default-run = "zero-api-key"
+
+[[bin]]
+name = "zero-api-key"
+path = "src/main.rs"
+
+[features]
+# The default builds with Command Line Tools alone. Xcode builds can precompile
+# Metal shaders with --no-default-features to reduce first-launch work.
+default = ["runtime-shaders"]
+runtime-shaders = ["gpui/runtime_shaders"]
+
+[dependencies]
+zero-api-key-core = { path = "../core" }
+gpui = { version = "=0.2.2", default-features = false, features = ["font-kit"] }
+anyhow = "1"
+async-channel = "2"
+unicode-segmentation = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

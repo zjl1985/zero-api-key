@@ -1,128 +1,149 @@
 # ZeroApiKey
 
-A local-first secret manager for macOS — desktop app **and** CLI — that replaces plaintext API keys and passwords scattered across ini files. Two interchangeable backends: an encrypted local vault, and [Infisical Cloud](https://infisical.com). Entries sync in both directions.
+A local-first secret manager for macOS, built with **Rust + GPUI**. A compact,
+Zed-inspired desktop workspace and the `zak` CLI share the same encrypted vault
+and Infisical Cloud backend.
 
-- **ZeroApiKey** — Tauri 2 + Preact desktop app with optional Touch ID unlock
-- **zak** — full-featured CLI (same Rust crate, same data)
+The desktop app renders directly with Metal. It ships no WebView, JavaScript
+runtime, web frontend, bundled fonts, or editor component framework.
 
-## Screenshots
+## Desktop
 
-| Main window | Add entry | Settings |
-| --- | --- | --- |
-| ![Main window](docs/screenshots/main.png) | ![Add entry dialog](docs/screenshots/add-entry.png) | ![Settings](docs/screenshots/settings.png) |
+- Three-pane workspace: groups, virtualized entry list, secret details.
+- Instant indexed search across groups, keys, environment variables, and comments.
+  Search uses masked metadata in memory and makes no network requests per keystroke.
+- API key, login, and note entries; create, edit, rename, delete, reveal, and copy.
+- Values hidden by default; revealed values disappear after five seconds.
+- Local encrypted vault and Infisical Cloud, with bidirectional sync.
+- INI import with masked preview and per-entry selection; shell export per group.
+- App password and optional Touch ID, checked by a shared desktop service.
+- Forest dark / paper light themes; English / Simplified Chinese preferences.
+- Native text input with UTF-16 IME support, grapheme navigation, selection,
+  clipboard shortcuts, and horizontal scrolling. Password fields disable copying.
+- Blocking HTTP, encryption, password hashing, and biometric verification run on
+  a dedicated worker. Vault mutations are serialized within the desktop process.
 
-## Features
+| Shortcut | Action |
+| --- | --- |
+| `⌘K` | Command palette (type to filter, arrows to choose, Return to run) |
+| `⌘F` | Search |
+| `⌘N` / `⇧⌘N` | New entry / new group |
+| `⌘E` | Edit selected entry |
+| `⇧⌘C` | Copy selected value |
+| `⌘R` | Refresh the selected backend |
+| `⌘,` | Settings |
+| `⇧⌘L` | Lock and clear the desktop session |
+| `↑` / `↓` | Select entries |
+| `Tab` / `⇧Tab` | Move between input fields |
+| `Escape` | Close a dialog, hide a value, or clear search |
 
-- Groups (e.g. `openai`, `kimi`) containing typed entries: `api-key`, `login`, `note`
-- Values are masked by default; reveal for 5 seconds or copy straight to the clipboard
-- Optional environment-variable name per entry; one-click export as `export ENV=...` shell statements
-- Tolerant ini import with per-entry preview and selection
-- Bidirectional sync between the local vault and Infisical Cloud
-- English / Chinese UI (Settings → Language), persisted locally
-- Edit entries in place (pencil icon reuses the Add dialog)
-- `zak get <KEY>` searches all groups by key or env var name — no group needed
-- Desktop app and CLI operate on the same vault and config
-- Optional GUI unlock password and Touch ID at launch; the CLI never prompts
+## Build and run
+
+Requires macOS 12+, current stable Rust, and Xcode Command Line Tools:
+
+```sh
+cargo run --release
+cargo run --release -- --preview  # built-in masked fixtures; writes are disabled
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+./scripts/bundle-macos.sh
+```
+
+The bundle script produces `dist/ZeroApiKey.app` and
+`dist/ZeroApiKey_0.2.0_<architecture>.dmg`. It uses the existing `ZeroApiKey Local
+Dev` signing identity when available, or an ad-hoc signature otherwise. Previous
+output bundles are moved to Trash before replacement. It does not replace the
+installed app in `/Applications`.
+
+The default `runtime-shaders` feature allows builds with Command Line Tools
+alone; Metal compiles and caches the shaders on the device. With full Xcode,
+`PRECOMPILE_SHADERS=1 ./scripts/bundle-macos.sh` embeds precompiled shaders to
+reduce first-launch work. Dependencies are pinned in `Cargo.lock`; GPUI is fixed
+at 0.2.2.
+
+Release builds use size optimization, thin LTO, one codegen unit and stripped
+symbols. Measure the actual `.app`, DMG, startup and memory use for your machine;
+GPUI does not inherently guarantee a smaller bundle than system-WebView Tauri.
 
 ## Architecture
 
-```
-zak (CLI) / ZeroApiKey (Tauri desktop)
-  │
-  ├── Store trait ─────────────────────────────┐
-  │                                             │
-  ├── LocalStore                      CloudStore
-  │  ~/.zero-api-key/vault.enc         │  HTTPS REST API
-  │  XChaCha20-Poly1305                ▼
-  │  master.key (0600, SSH model)   Infisical Cloud
-  │  no prompts for the CLI         Project → Environment → Folder (group) → Secret (entry)
-  │
-  └── sync: local ⇄ cloud, per-conflict interactive resolution
+```text
+crates/desktop                 crates/core
+  GPUI views + native input      Service (desktop unlock gate)
+  indexed metadata search         │
+  serial background worker ──────┼── LocalStore → encrypted vault
+                                 ├── CloudStore → Infisical REST API
+zak CLI ─────────────────────────┴── Store / config / importer / models
 ```
 
-Unified data model shared by both backends:
+`crates/core` retains the original encryption and data format. The desktop
+service exposes masked entry summaries and only obtains plaintext for explicit
+reveal, copy, editing, import, export and sync operations. Locking clears the
+view's catalog, search cache, revealed values and forms. A session generation
+counter discards results from requests started before locking.
 
-```
-Group (e.g. openai / deepseek / cursor)
-└── Entry
-      key        UPPER_SNAKE (API_KEY / USERNAME / PASSWORD / BASE_URL / NOTE / custom)
-      value      stored encrypted
-      type       api-key | login | note     (cloud: secretMetadata)
-      env_name?  linked environment variable (cloud: secretMetadata)
-```
+## Existing data and security
 
-Mapping: local Group → cloud Folder; local Entry → Secret inside that folder.
+Release builds continue using `~/.zero-api-key/config.toml`, `vault.enc` and
+`master.key`. The Keychain service and bundle identifier are unchanged. Debug
+builds use separate `*-dev` data/config names and Keychain service.
 
-## Security model
+- Vault data is JSON encrypted with XChaCha20-Poly1305.
+- The random 32-byte master key is stored with `0600` permissions, following the
+  filesystem permission model of an SSH private key. A legacy Keychain key is
+  migrated once when needed.
+- Cloud credentials are stored in macOS Keychain, not in the config file.
+- The desktop password uses PBKDF2-SHA256. A password or enabled Touch ID locks
+  the app at startup; every desktop data operation checks the session gate.
+- Touch ID calls macOS LocalAuthentication in both debug and release builds,
+  falling back to device-owner authentication when biometrics are unavailable.
+- The desktop password gates app access; it does not derive the vault's master
+  key. Processes running as your user can access the master key file. The CLI
+  intentionally retains its original access without a GUI password prompt.
+- Copied values remain on the system clipboard until replaced.
+- Local self-signing is not Developer ID notarization; downloaded bundles may
+  require right-click → Open.
 
-- The local vault (`~/.zero-api-key/vault.enc`) is JSON serialized, then encrypted with XChaCha20-Poly1305.
-- The 32-byte random master key is generated on first use and stored in `~/.zero-api-key/master.key` with `0600` permissions — the same filesystem-permission model as SSH private keys. Upgrading from an older build migrates the Keychain-stored key to this file once and removes it from the Keychain (that single migration read may show one final Keychain authorization prompt).
-- **The CLI never prompts**: no password, no Touch ID, no Keychain authorization.
-- The desktop app can require an **unlock password** at launch (Settings → Unlock password; PBKDF2-SHA256, off by default). While locked, no group or entry data is rendered, and every backend command except password verification is refused. If Touch ID unlock is also enabled (off by default), the lock screen offers a fingerprint button via LAContext device-owner verification.
-- Plaintext only exists in memory; nothing is written to disk unencrypted.
-- Cloud credentials (Client ID / Client Secret) are stored in the Keychain, never in the config file.
+Theme/language preferences live in `desktop.json` (`desktop-dev.json` in debug).
+For an isolated local vault, set `ZERO_API_KEY_DATA_DIR` to a separate directory.
+This bypasses legacy Keychain key migration; cloud credentials still use the
+normal build-specific Keychain service. Tests use temporary directories and
+fixture secrets, never the normal vault.
 
-Honest limitations:
-
-- The master key file is protected by filesystem permissions only: any process running as your user can read it — the same tradeoff as `~/.ssh/id_rsa`. The GUI unlock password gates the app's interface, not the file.
-
-- The app is **self-signed** (local certificate `ZeroApiKey Local Dev`), not notarized. A stable signature keeps the Keychain from re-prompting on every launch, but Gatekeeper will still warn on first open of a downloaded build — right-click → Open. For personal builds this is expected; there is no Apple Developer identity behind this project.
-- Even when enabled, the Touch ID gate is a pre-access check at the application layer (LAContext), not a Keychain ACL binding. It raises the bar against casual access, but a determined attacker with control of the logged-in session should be considered out of scope. Keychain ACL binding requires a proper Developer ID signature with entitlements, which is why this approach was chosen.
-
-## Install
-
-Download `ZeroApiKey_<version>_aarch64.dmg` from the latest release (or the `dist/` output of a local build), drag `ZeroApiKey.app` to Applications, then right-click → Open on first launch.
-
-Build from source (requires Rust, pnpm, and the Tauri prerequisites):
+## CLI
 
 ```sh
-pnpm install
-pnpm dist        # produces dist/ZeroApiKey.app and dist/ZeroApiKey_*_aarch64.dmg
-```
+cargo build --release -p zero-api-key-core --bin zak
+./install-cli.sh  # installs and signs ~/.cargo/bin/zak with your local identity
 
-The CLI is built alongside the app:
-
-```sh
-cargo build --release --manifest-path src-tauri/Cargo.toml --bin zak
-# binary: src-tauri/target/release/zak
-```
-
-## CLI usage
-
-```
-zak init                              # interactive setup: local / cloud / both
-zak add <group> [--local|--cloud]     # interactive add (api-key / login / note)
-zak get <group|KEY> [--key N] [--reveal] [--raw] [--local|--cloud]
+zak init
+zak add <group> [--local|--cloud]
+zak get <group|KEY> [--key KEY] [--reveal] [--raw] [--local|--cloud]
 zak list [group] [--local|--cloud]
-zak rm <group> [--key N] [--local|--cloud]
-zak rename <group> <OLD> <NEW> [--local|--cloud]  # rename a key, value/type/comment kept
-zak export <group> [--local|--cloud]  # prints export ENV=..., safe to eval
-zak import <file.ini> [--local|--cloud]  # tolerant parse, confirm per entry
-zak sync [--to cloud|--to local]      # interactive direction if omitted
+zak rm <group> [--key KEY] [--local|--cloud]
+zak rename <group> <OLD> <NEW> [--local|--cloud]
+zak export <group> [--local|--cloud]
+zak import <file.ini> [--local|--cloud]
+zak import-json <file.json> [--local|--cloud]
+zak sync [--to cloud|--to local] [--force]
 ```
 
-- `--local` / `--cloud` override the default backend; otherwise `default_mode` from `config.toml` is used.
-- `zak get` resolves its argument as a group first; if no such group exists, it searches **all groups** for a matching key or env var name. A unique match prints as `group / KEY = value`; ambiguous matches (e.g. `PASSWORD` in several groups) fail with the locations — disambiguate with `zak get <group> --key <KEY>`. `--raw` (with `--reveal`) prints just the value for `$(zak get KEY --reveal --raw)` scripting.
-- `zak sync` conflict policy: same key with different values → masked diff, choose keep source / keep target / skip; `--force` overwrites the target with the source.
+`--local` / `--cloud` override the configured default backend. `zak get` resolves
+its argument as a group first, then searches all groups for a key/environment
+variable name. Ambiguous matches list the locations; `--raw --reveal` prints a
+single value for scripts. The CLI and desktop use the same vault/config.
 
-## Cloud setup (one-time)
+CLI sync prompts per conflict unless `--force` is given. Desktop sync explicitly
+confirms the direction and uses source-wins replacement. Importing existing
+(group, key) pairs also replaces their values after the preview confirmation.
 
-1. In the Infisical web UI, create a project named `zero-api-key`.
-2. Project → Access Control → Machine Identities: create an identity, enable **Universal Auth**, note the Client ID / Client Secret, and grant it write access to the project.
-3. Run `zak init` (or Settings in the desktop app) and enter the credentials.
+## Cloud setup
 
-## Tech stack
-
-- `tauri` 2 — desktop shell (`src-tauri`; the `zero_api_key_lib` crate backs both the CLI and the Tauri commands)
-- `preact` + `vite` + `pnpm` — frontend (`src/`)
-- `clap` (derive) — CLI
-- `reqwest` (blocking + rustls) — Infisical API
-- `chacha20poly1305` + `rand` + `base64` — vault encryption
-- `keyring` — Keychain storage for cloud credentials
-- `pbkdf2` + `sha2` — GUI unlock password hashing
-- `serde` / `serde_json` / `toml` — models and config
-- `anyhow`, `dirs`, `dialoguer`
+Create an Infisical project and Machine Identity, enable Universal Auth, and grant
+the identity write access to the project. Enter API base, project ID, environment,
+client ID and client secret in Settings → Cloud, or run `zak init`.
 
 ## License
 
-[MIT](LICENSE) © zjl1985
+[MIT](LICENSE). GPUI and the adapted native input implementation are
+Apache-2.0; see [third-party notices](THIRD_PARTY_NOTICES.md).
